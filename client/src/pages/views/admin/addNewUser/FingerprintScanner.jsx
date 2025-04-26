@@ -1,7 +1,7 @@
-// Create a new file: FingerprintScanner.js
+// Create a new file: FingerprintScanner.jsx
 
-import { useEffect, useState } from 'react';
-import { HiOutlineX } from 'react-icons/hi';
+import { useEffect, useState, useCallback } from 'react';
+import { HiOutlineX } from "react-icons/hi";
 import Swal from 'sweetalert2';
 
 // This function will be your main hook for fingerprint scanning
@@ -12,54 +12,90 @@ export const useFingerprintScanner = () => {
     const [readers, setReaders] = useState([]);
     const [selectedReader, setSelectedReader] = useState("");
     const [acquisitionStarted, setAcquisitionStarted] = useState(false);
+    const [scanQuality, setScanQuality] = useState("");
+    const [isInitialized, setIsInitialized] = useState(false);
 
-    // Initialize the SDK
-    useEffect(() => {
-        // Check if the SDK is available in the window object
-        if (window.Fingerprint) {
-            try {
+    // Function to initialize SDK - can be called to re-attempt initialization
+    const initializeSdk = useCallback(async () => {
+        try {
+            // Check if the SDK is available in the window object
+            if (window.Fingerprint && window.Fingerprint.WebApi) {
                 const fingerprintSdk = new window.Fingerprint.WebApi();
                 setSdk(fingerprintSdk);
 
                 // Set up event handlers
                 fingerprintSdk.onDeviceConnected = (e) => {
+                    console.log("Device connected:", e);
                     setStatus("Device connected. Scan your finger.");
                 };
 
                 fingerprintSdk.onDeviceDisconnected = (e) => {
+                    console.log("Device disconnected:", e);
                     setStatus("Device disconnected");
+                    setSelectedReader("");
                     setAcquisitionStarted(false);
                 };
 
                 fingerprintSdk.onCommunicationFailed = (e) => {
+                    console.log("Communication failed:", e);
                     setStatus("Communication failed");
                     setAcquisitionStarted(false);
                 };
 
                 fingerprintSdk.onSamplesAcquired = (s) => {
+                    console.log("Sample acquired:", s);
                     // Handle samples
-                    const samples = JSON.parse(s.samples);
-                    // Assuming PngImage format
-                    const base64Image = `data:image/png;base64,${window.Fingerprint.b64UrlTo64(samples[0])}`;
-                    setFingerprint(base64Image);
-                    setStatus("Fingerprint captured");
+                    try {
+                        const samples = JSON.parse(s.samples);
+                        if (samples && samples.length > 0) {
+                            // Assuming PngImage format
+                            const base64Image = `data:image/png;base64,${window.Fingerprint.b64UrlTo64(samples[0].Data || samples[0])}`;
+                            setFingerprint(base64Image);
+                            setStatus("Fingerprint captured successfully");
+                        } else {
+                            setStatus("No sample data received");
+                        }
+                    } catch (error) {
+                        console.error("Error processing sample:", error);
+                        setStatus(`Error processing sample: ${error.message}`);
+                    }
 
                     // Auto stop after capture
                     stopCapture();
                 };
 
                 fingerprintSdk.onQualityReported = (e) => {
-                    // You can expose this if needed
+                    console.log("Quality reported:", e);
+                    if (window.Fingerprint.QualityCode && e.quality !== undefined) {
+                        setScanQuality(window.Fingerprint.QualityCode[e.quality]);
+                    }
                 };
 
+                setIsInitialized(true);
+                
                 // Get the list of available readers
-                getAvailableReaders();
-            } catch (error) {
-                setStatus(`Error initializing SDK: ${error.message}`);
+                try {
+                    await getAvailableReaders(fingerprintSdk);
+                } catch (error) {
+                    console.error("Failed to enumerate devices:", error);
+                    setStatus(`Failed to find readers: ${error.message}`);
+                }
+                
+                return true;
+            } else {
+                setStatus("Fingerprint SDK not available. Make sure you've included the SDK scripts.");
+                return false;
             }
-        } else {
-            setStatus("Fingerprint SDK not available. Make sure you've included the SDK scripts.");
+        } catch (error) {
+            console.error("Error initializing SDK:", error);
+            setStatus(`Error initializing SDK: ${error.message}`);
+            return false;
         }
+    }, []);
+
+    // Initialize the SDK
+    useEffect(() => {
+        initializeSdk();
 
         // Cleanup on unmount
         return () => {
@@ -67,113 +103,159 @@ export const useFingerprintScanner = () => {
                 sdk.stopAcquisition().catch(console.error);
             }
         };
-    }, []);
+    }, [initializeSdk]);
 
     // Function to get available readers
-    const getAvailableReaders = async () => {
-        if (!sdk) return;
+    const getAvailableReaders = async (sdkInstance = null) => {
+        const currentSdk = sdkInstance || sdk;
+        if (!currentSdk) {
+            throw new Error("SDK not initialized");
+        }
 
         try {
-            const readersArray = await sdk.enumerateDevices();
-            setReaders(readersArray);
+            console.log("Enumerating devices...");
+            const readersArray = await currentSdk.enumerateDevices();
+            console.log("Available readers:", readersArray);
+            
+            if (Array.isArray(readersArray)) {
+                setReaders(readersArray);
 
-            // If there's at least one reader, select it automatically
-            if (readersArray.length > 0) {
-                setSelectedReader(readersArray[0]);
-                setStatus("Reader connected. Ready to scan.");
+                // If there's at least one reader, select it automatically
+                if (readersArray.length > 0) {
+                    setSelectedReader(readersArray[0]);
+                    setStatus("Reader connected. Ready to scan.");
+                    return readersArray;
+                } else {
+                    setStatus("No fingerprint readers found. Please connect a reader.");
+                    return [];
+                }
             } else {
-                setStatus("No fingerprint readers found. Please connect a reader.");
+                console.error("Invalid readers response:", readersArray);
+                setStatus("Failed to enumerate devices: Invalid response");
+                return [];
             }
         } catch (error) {
+            console.error("Error getting readers:", error);
             setStatus(`Error getting readers: ${error.message}`);
+            throw error;
         }
     };
 
     // Start capturing
     const startCapture = async () => {
-        if (!sdk || !selectedReader) {
-            setStatus("SDK not initialized or no reader selected");
-            return;
+        if (!sdk) {
+            setStatus("SDK not initialized");
+            return false;
+        }
+        
+        if (!selectedReader) {
+            setStatus("No reader selected");
+            return false;
         }
 
         if (acquisitionStarted) {
             setStatus("Acquisition already started");
-            return;
+            return false;
         }
 
         try {
+            console.log("Starting acquisition with reader:", selectedReader);
             // Format is set to PNG image
             const format = window.Fingerprint.SampleFormat.PngImage;
             await sdk.startAcquisition(format, selectedReader);
             setAcquisitionStarted(true);
             setStatus("Scanning started. Place your finger on the reader.");
+            return true;
         } catch (error) {
+            console.error("Error starting capture:", error);
             setStatus(`Error starting capture: ${error.message}`);
+            return false;
         }
     };
 
     // Stop capturing
     const stopCapture = async () => {
-        if (!sdk || !acquisitionStarted) return;
+        if (!sdk || !acquisitionStarted) return false;
 
         try {
             await sdk.stopAcquisition();
             setAcquisitionStarted(false);
+            return true;
         } catch (error) {
+            console.error("Error stopping capture:", error);
             setStatus(`Error stopping capture: ${error.message}`);
+            return false;
         }
     };
 
-    // Scan fingerprint and return result
-    const scanFingerprint = async () => {
+    // Scan fingerprint and return result with timeout
+    const scanFingerprint = async (timeoutMs = 30000) => {
         return new Promise(async (resolve, reject) => {
             if (!sdk) {
-                reject("SDK not initialized");
-                return;
-            }
-
-            if (readers.length === 0) {
-                try {
-                    await getAvailableReaders();
-                } catch (error) {
-                    reject(`Error getting readers: ${error.message}`);
+                await initializeSdk();
+                if (!sdk) {
+                    reject(new Error("Failed to initialize SDK"));
                     return;
                 }
             }
 
-            if (readers.length === 0) {
-                reject("No fingerprint readers found. Please connect a reader.");
-                return;
-            }
-
-            // Set up a listener for the fingerprint capture
-            const captureListener = () => {
+            // Set up fingerprint change listener
+            const handleFingerprintChange = () => {
                 if (fingerprint) {
+                    // Clear the listener
                     resolve(fingerprint);
-                    setFingerprint(null); // Reset for next capture
-                    document.removeEventListener('fingerprintCaptured', captureListener);
                 }
             };
 
-            // Create a custom event that will be triggered when fingerprint is captured
-            document.addEventListener('fingerprintCaptured', captureListener);
-
-            // Start the capture
-            try {
-                await startCapture();
-
-                // Set a timeout to reject the promise if no fingerprint is captured
-                setTimeout(() => {
-                    if (!fingerprint) {
-                        document.removeEventListener('fingerprintCaptured', captureListener);
-                        stopCapture();
-                        reject("Fingerprint capture timed out");
+            // Initial check if we already have readers
+            if (readers.length === 0) {
+                try {
+                    const availableReaders = await getAvailableReaders();
+                    if (availableReaders.length === 0) {
+                        reject(new Error("No fingerprint readers found. Please connect a reader."));
+                        return;
                     }
-                }, 30000); // 30 seconds timeout
-            } catch (error) {
-                document.removeEventListener('fingerprintCaptured', captureListener);
-                reject(`Error starting capture: ${error.message}`);
+                } catch (error) {
+                    reject(new Error(`Failed to get readers: ${error.message}`));
+                    return;
+                }
             }
+
+            // Subscribe to fingerprint changes
+            const fingerprintListener = () => handleFingerprintChange();
+            document.addEventListener('fingerprintCaptured', fingerprintListener);
+
+            // Start the capture process
+            const captureStarted = await startCapture();
+            if (!captureStarted) {
+                document.removeEventListener('fingerprintCaptured', fingerprintListener);
+                reject(new Error(`Failed to start capture: ${status}`));
+                return;
+            }
+
+            // Set timeout
+            const timeoutId = setTimeout(() => {
+                document.removeEventListener('fingerprintCaptured', fingerprintListener);
+                stopCapture();
+                reject(new Error("Fingerprint scan timed out. Please try again."));
+            }, timeoutMs);
+
+            // Set up cleanup for when we get a result
+            const cleanupPromise = () => {
+                clearTimeout(timeoutId);
+                document.removeEventListener('fingerprintCaptured', fingerprintListener);
+            };
+
+            // Update the fingerprint state and dispatch event
+            setFingerprint(prevFingerprint => {
+                if (prevFingerprint) {
+                    // If we already have a fingerprint, resolve immediately
+                    cleanupPromise();
+                    resolve(prevFingerprint);
+                    return prevFingerprint;
+                }
+                return null;
+            });
         });
     };
 
@@ -183,6 +265,20 @@ export const useFingerprintScanner = () => {
             document.dispatchEvent(new Event('fingerprintCaptured'));
         }
     }, [fingerprint]);
+
+    // Reload the SDK and readers if needed
+    const refreshSdk = async () => {
+        try {
+            if (sdk && acquisitionStarted) {
+                await stopCapture();
+            }
+            return await initializeSdk();
+        } catch (error) {
+            console.error("Error refreshing SDK:", error);
+            setStatus(`Error refreshing SDK: ${error.message}`);
+            return false;
+        }
+    };
 
     return {
         fingerprint,
@@ -194,7 +290,10 @@ export const useFingerprintScanner = () => {
         scanFingerprint,
         startCapture,
         stopCapture,
-        getAvailableReaders
+        getAvailableReaders,
+        refreshSdk,
+        isInitialized,
+        scanQuality
     };
 };
 
@@ -205,46 +304,87 @@ export const FingerprintModal = ({ isOpen, onClose, onCapture, staffId }) => {
         status,
         readers,
         selectedReader,
-        scanFingerprint
+        scanFingerprint,
+        refreshSdk,
+        isInitialized
     } = useFingerprintScanner();
 
     const [isScanning, setIsScanning] = useState(false);
+    const [scanError, setScanError] = useState(null);
 
-    // Handle the case when no readers are found
+    // Effect to check SDK initialization
     useEffect(() => {
-        if (readers.length === 0 && status !== "Not started") {
+        if (isOpen && !window.Fingerprint) {
             Swal.fire({
-                title: "No Reader Found",
-                text: "No fingerprint readers detected. Please connect a reader and try again.",
+                title: "SDK Not Available",
+                text: "The Fingerprint SDK is not available or scripts haven't loaded. Please refresh the page and try again.",
                 icon: "error"
             });
         }
-    }, [readers, status]);
+    }, [isOpen]);
+
+    // Effect to check for readers
+    useEffect(() => {
+        if (isOpen && isInitialized && readers.length === 0) {
+            Swal.fire({
+                title: "No Reader Found",
+                text: "No fingerprint readers detected. Please connect a reader and try again.",
+                icon: "warning",
+                showCancelButton: true,
+                confirmButtonText: "Refresh Readers",
+                cancelButtonText: "Cancel"
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    refreshSdk();
+                }
+            });
+        }
+    }, [isOpen, readers, isInitialized, refreshSdk]);
 
     const handleScan = async () => {
         if (isScanning) return;
 
         if (!selectedReader) {
             Swal.fire({
-                title: "No Reader Found",
-                text: "No fingerprint readers detected. Please connect a reader and try again.",
+                title: "No Reader Selected",
+                text: "No fingerprint reader selected. Please connect a reader and try again.",
                 icon: "error"
             });
             return;
         }
 
         setIsScanning(true);
+        setScanError(null);
+        
         try {
-            const fingerprintData = await scanFingerprint();
-            onCapture({
-                staffId,
-                fingerprint: fingerprintData
-            });
-            onClose();
+            const fingerprintData = await scanFingerprint(30000); // 30 second timeout
+            if (fingerprintData) {
+                onCapture({
+                    staffId,
+                    fingerprint: fingerprintData
+                });
+                
+                // Show success message
+                Swal.fire({
+                    title: "Success!",
+                    text: "Fingerprint captured successfully.",
+                    icon: "success",
+                    timer: 2000,
+                    showConfirmButton: false
+                });
+                
+                // Close modal after success
+                setTimeout(() => {
+                    onClose();
+                }, 2000);
+            }
         } catch (error) {
+            console.error("Scan error:", error);
+            setScanError(error.message);
+            
             Swal.fire({
-                title: "Error",
-                text: error.toString(),
+                title: "Scan Failed",
+                text: error.message,
                 icon: "error"
             });
         } finally {
@@ -255,102 +395,79 @@ export const FingerprintModal = ({ isOpen, onClose, onCapture, staffId }) => {
     if (!isOpen) return null;
 
     return (
-        <>
-            <div className="modal modal-open">
-                <div className="modal-box bg-white text-black">
-                    <div className="flex flex-row justify-between">
-                        <h3 className="font-bold text-lg">Register Fingerprint</h3>
-                        <button
-                            className="btn btn-ghost bg-white text-black"
-                            type="button"
-                            onClick={onClose}
-                            disabled={isScanning}
-                        >
-                            <HiOutlineX />
-                        </button>
-                    </div>
-
-                    <div className="modal-action">
-                        <form className="flex flex-col gap-4 w-full">
-
-                            <p className="text-gray-600 text-sm">Staff ID: {staffId}</p>
-
-                            {readers.length > 0 && (
-                                <p className="text-green-600 text-sm">
-                                    Using fingerprint reader: {selectedReader}
-                                </p>
-                            )}
-
-                            <div className="border rounded flex items-center justify-center h-40">
-                                {fingerprint ? (
-                                    <img src={fingerprint} alt="Fingerprint" className="max-h-full" />
-                                ) : (
-                                    <p className="text-center text-gray-500">{status}</p>
-                                )}
-                            </div>
-
-                            <div className="flex flex-col gap-2 pt-2 w-full">
-                                <button
-                                    type="button"
-                                    className="btn w-full justify-center rounded-md bg-blue-300 px-3 py-1.5 text-sm font-semibold leading-6 text-blue-800 shadow-sm hover:bg-blue-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
-                                    onClick={handleScan}
-                                    disabled={isScanning || !selectedReader}
-                                >
-                                    {isScanning ? "Scanning..." : "Scan Fingerprint"}
-                                </button>
-
-                                <button
-                                    type="button"
-                                    className="btn w-full justify-center rounded-md bg-gray-300 px-3 py-1.5 text-sm font-semibold leading-6 text-gray-800 shadow-sm hover:bg-gray-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-400"
-                                    onClick={onClose}
-                                    disabled={isScanning}
-                                >
-                                    Cancel
-                                </button>
-                            </div>
-
-                        </form>
-                    </div>
-                </div>
-            </div>
-
-            {/* <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 w-96">
-                <h2 className="text-xl font-bold mb-4">Register Fingerprint</h2>
-                <p className="text-gray-600 mb-4">Staff ID: {staffId}</p>
-                
-                {readers.length > 0 && (
-                    <p className="text-sm text-green-600 mb-4">
-                        Using fingerprint reader: {selectedReader}
-                    </p>
-                )}
-                
-                <div className="mb-4 h-40 border rounded flex items-center justify-center">
-                    {fingerprint ? (
-                        <img src={fingerprint} alt="Fingerprint" className="max-h-full" />
-                    ) : (
-                        <p className="text-center text-gray-500">{status}</p>
-                    )}
-                </div>
-                
-                <div className="flex justify-between">
+        <div className="modal modal-open">
+            <div className="modal-box bg-white text-black">
+                <div className="flex flex-row justify-between">
+                    <h3 className="font-bold text-lg">Register Fingerprint</h3>
                     <button
-                        className="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300"
+                        className="btn btn-ghost bg-white text-black"
+                        type="button"
                         onClick={onClose}
                         disabled={isScanning}
                     >
-                        Cancel
-                    </button>
-                    <button
-                        className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-                        onClick={handleScan}
-                        disabled={isScanning || !selectedReader}
-                    >
-                        {isScanning ? "Scanning..." : "Scan Fingerprint"}
+                        <HiOutlineX />
                     </button>
                 </div>
+
+                <div className="modal-action">
+                    <form className="flex flex-col gap-4 w-full">
+                        <p className="text-gray-600 text-sm">Staff ID: {staffId}</p>
+
+                        {readers.length > 0 && (
+                            <p className="text-green-600 text-sm">
+                                Using fingerprint reader: {selectedReader}
+                            </p>
+                        )}
+
+                        {readers.length === 0 && (
+                            <p className="text-red-600 text-sm">
+                                No fingerprint reader detected. Please connect a reader.
+                            </p>
+                        )}
+
+                        <div className="border rounded flex items-center justify-center h-40">
+                            {fingerprint ? (
+                                <img src={fingerprint} alt="Fingerprint" className="max-h-full" />
+                            ) : scanError ? (
+                                <p className="text-center text-red-500">{scanError}</p>
+                            ) : (
+                                <p className="text-center text-gray-500">{status}</p>
+                            )}
+                        </div>
+
+                        <div className="flex flex-col gap-2 pt-2 w-full">
+                            <button
+                                type="button"
+                                className="btn w-full justify-center rounded-md bg-blue-300 px-3 py-1.5 text-sm font-semibold leading-6 text-blue-800 shadow-sm hover:bg-blue-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+                                onClick={handleScan}
+                                disabled={isScanning || readers.length === 0}
+                            >
+                                {isScanning ? "Scanning..." : "Scan Fingerprint"}
+                            </button>
+
+                            <button
+                                type="button"
+                                className="btn w-full justify-center rounded-md bg-gray-300 px-3 py-1.5 text-sm font-semibold leading-6 text-gray-800 shadow-sm hover:bg-gray-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-400"
+                                onClick={onClose}
+                                disabled={isScanning}
+                            >
+                                Cancel
+                            </button>
+                            
+                            {readers.length === 0 && (
+                                <button
+                                    type="button"
+                                    className="btn w-full justify-center rounded-md bg-green-300 px-3 py-1.5 text-sm font-semibold leading-6 text-green-800 shadow-sm hover:bg-green-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green-600"
+                                    onClick={refreshSdk}
+                                    disabled={isScanning}
+                                >
+                                    Refresh Readers
+                                </button>
+                            )}
+                        </div>
+                    </form>
+                </div>
             </div>
-        </div> */}
-        </>
+        </div>
     );
 };

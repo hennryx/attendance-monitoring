@@ -11,7 +11,7 @@ const Table = ({ data, toggleAdd, handleUpdate }) => {
     const [searchResult, setSearchResult] = useState("");
     const [allData, setAllData] = useState(data);
     const [searchTerm, setSearchTerm] = useState('');
-    
+
     // State for fingerprint modal
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [selectedStaff, setSelectedStaff] = useState(null);
@@ -36,32 +36,114 @@ const Table = ({ data, toggleAdd, handleUpdate }) => {
             }
         });
     };
-    
+
+    useEffect(() => {
+        // Check if scripts are already loaded
+        if (window.Fingerprint) {
+            console.log("Fingerprint SDK already loaded");
+            return;
+        }
+
+        // Enhanced script loading with better error handling and verification
+        const loadScript = (src) => {
+            return new Promise((resolve, reject) => {
+                // Check if script already exists
+                const existingScript = document.querySelector(`script[src="${src}"]`);
+                if (existingScript) {
+                    resolve();
+                    return;
+                }
+
+                const script = document.createElement('script');
+                script.src = src;
+                script.async = true;
+
+                script.onload = () => {
+                    console.log(`Script loaded: ${src}`);
+                    resolve();
+                };
+
+                script.onerror = (error) => {
+                    console.error(`Error loading script: ${src}`, error);
+                    reject(new Error(`Failed to load ${src}`));
+                };
+
+                document.head.appendChild(script);
+            });
+        };
+
+        const loadSDK = async () => {
+            try {
+                console.log("Loading Fingerprint SDK scripts...");
+                // Load dependencies first
+                await loadScript('/scripts/es6-shim.js');
+                await loadScript('/scripts/websdk.client.bundle.min.js');
+                // Then load the SDK
+                await loadScript('/scripts/fingerprint.sdk.min.js');
+
+                // Verify SDK was loaded properly
+                if (window.Fingerprint && window.Fingerprint.WebApi) {
+                    console.log("Fingerprint SDK loaded successfully");
+                } else {
+                    console.error("SDK objects not found after loading scripts");
+                    Swal.fire({
+                        title: "SDK Not Available",
+                        text: "The Fingerprint SDK could not be initialized. Please check your network connection and try again.",
+                        icon: "error"
+                    });
+                }
+            } catch (error) {
+                console.error("Failed to load Fingerprint SDK:", error);
+                Swal.fire({
+                    title: "Failed to Load SDK",
+                    text: "Could not load the fingerprint SDK scripts. Please check your network connection and try again.",
+                    icon: "error"
+                });
+            }
+        };
+
+        loadSDK();
+    }, []);
+
+
     // Handle opening the fingerprint registration modal
     const handleFingerprintRegister = (staff) => {
         // Check if the Fingerprint SDK is available
-        if (!window.Fingerprint) {
+        if (!window.Fingerprint || !window.Fingerprint.WebApi) {
             Swal.fire({
                 title: "SDK Not Available",
-                text: "The Fingerprint SDK is not available. Please make sure you've included the required scripts.",
-                icon: "error"
+                text: "The Fingerprint SDK is not available. Please refresh the page and try again.",
+                icon: "error",
+                showCancelButton: true,
+                confirmButtonText: "Reload Scripts",
+                cancelButtonText: "Cancel"
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    // Force reload scripts
+                    window.Fingerprint = null;
+                    // This will trigger the useEffect to reload scripts
+                    setIsModalOpen(false);
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 500);
+                }
             });
             return;
         }
-        
+
         setSelectedStaff(staff);
         setIsModalOpen(true);
     };
-    
+
     // Handle successful fingerprint capture
     const handleFingerprintCapture = (data) => {
         // Log the data (staff ID and fingerprint)
         console.log("Fingerprint Captured:", data);
-        
+
         // Here you would typically send this data to your API
         // Example:
         // saveFingerprintToAPI(data.staffId, data.fingerprint);
-        
+
         Swal.fire({
             title: "Success!",
             text: "Fingerprint registered successfully.",
@@ -96,37 +178,6 @@ const Table = ({ data, toggleAdd, handleUpdate }) => {
         }
     }, [searchTerm, data]);
 
-    // Add script loading effect
-    useEffect(() => {
-        // Check if scripts are already loaded
-        if (window.Fingerprint) return;
-        
-        // Load the necessary scripts for the Fingerprint SDK
-        const loadScript = (src) => {
-            return new Promise((resolve, reject) => {
-                const script = document.createElement('script');
-                script.src = src;
-                script.onload = resolve;
-                script.onerror = reject;
-                document.head.appendChild(script);
-            });
-        };
-        
-        const loadSDK = async () => {
-            try {
-                // Load dependencies first
-                await loadScript('/scripts/es6-shim.js');
-                await loadScript('/scripts/websdk.client.bundle.min.js');
-                // Then load the SDK
-                await loadScript('/scripts/fingerprint.sdk.min.js');
-                console.log("Fingerprint SDK loaded successfully");
-            } catch (error) {
-                console.error("Failed to load Fingerprint SDK:", error);
-            }
-        };
-        
-        loadSDK();
-    }, []);
 
     const indexOfLastItem = currentPage * itemsPerPage;
     const indexOfFirstItem = indexOfLastItem - itemsPerPage;
@@ -301,7 +352,7 @@ const Table = ({ data, toggleAdd, handleUpdate }) => {
                 </tbody>
             </table>
             {!searchResult && renderPagination()}
-            
+
             {/* Fingerprint Modal */}
             {isModalOpen && selectedStaff && (
                 <FingerprintModal
