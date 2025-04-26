@@ -1,0 +1,68 @@
+.sidebar-main {
+    transition: width 0.5s ease-in-out;
+}
+
+.sidebar ul li {
+    color: #E4E9F7;
+    background-color: transparent;
+}
+
+
+.sidebar ul li .active {
+    background-color: #E4E9F7;
+    color: black;
+    border-top-left-radius: 1.2rem;
+    border-bottom-left-radius: 1.2rem;
+    position: relative;
+    transition: background-color 0.3s, color 0.3s ease;
+}
+
+.sidebar ul li .active b:nth-child(1) {
+    background-color: #E4E9F7;
+    width: 100%;
+    position: absolute;
+    top: -1rem;
+    left: 0;
+    height: 1em;
+    transition: all 0.3s ease;
+}
+
+
+.sidebar ul li .active b:nth-child(2) {
+    background-color: #E4E9F7;
+    width: 100%;
+    position: absolute;
+    bottom: -1rem;
+    left: 0;
+    height: 1em;
+    transition: all 0.3s ease;
+}
+
+.sidebar ul li .active b:nth-child(1)::before {
+    content: "";
+    position: absolute;
+    background-color: #1447e6;
+    top: 0;
+    left: 0;
+    height: 100%;
+    width: 100%;
+    border-bottom-right-radius: 1.2rem;
+    transition: border-radius 0.3s ease, background-color 0.3s ease;
+}
+
+.sidebar ul li .active b:nth-child(2)::before {
+    content: "";
+    position: absolute;
+    background-color: #1447e6;
+    top: 0;
+    left: 0;
+    height: 100%;
+    width: 100%;
+    border-top-right-radius: 1.2rem;
+    transition: border-radius 0.3s ease, background-color 0.3s ease;
+}
+
+.sidebar ul li div,
+.sidebar ul li a {
+    transition: background-color 0.2s ease, color 0.2s ease, padding 0.2s ease;
+}
