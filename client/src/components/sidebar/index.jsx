@@ -9,9 +9,7 @@ import { VscAccount } from "react-icons/vsc";
 import { IoMdLogOut } from "react-icons/io";
 import Logo from "../../assets/Logo.png"
 
-import './sidebar.css'
 import Swal from 'sweetalert2';
-
 
 const Sidebar = ({ role, token }) => {
     const menuItems = ROLES[role] || [];
@@ -116,10 +114,8 @@ const Sidebar = ({ role, token }) => {
                         <li key={index} className='flex flex-col items-end transition-all duration-300'>
                             <div
                                 onClick={() => toggleMenu(index)}
-                                className={`w-[90%] flex items-center transition-colors duration-200 ${activeIndex === index ? "active" : ""}`}
+                                className={`w-[90%] flex items-center transition-colors duration-200 ${activeIndex === index ? "border-l-2" : ""}`}
                             >
-                                <b></b>
-                                <b></b>
                                 {!item.children ? (
                                     <NavLink
                                         to={item.path}

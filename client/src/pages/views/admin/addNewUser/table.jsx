@@ -1,15 +1,20 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState } from 'react';
 import { IoIosAdd } from "react-icons/io";
 import Swal from 'sweetalert2';
 import useUsersStore from '../../../../services/stores/users/usersStore';
 import useAuthStore from '../../../../services/stores/authStore';
+import { FingerprintModal } from './FingerprintScanner';
 
 const Table = ({ data, toggleAdd, handleUpdate }) => {
     const { deleteUser, message, isSuccess } = useUsersStore();
-    const { token } = useAuthStore()
-    const [searchResult, setSearchResult] = useState("")
-    const [allData, setAllData] = useState(data)
+    const { token } = useAuthStore();
+    const [searchResult, setSearchResult] = useState("");
+    const [allData, setAllData] = useState(data);
     const [searchTerm, setSearchTerm] = useState('');
+    
+    // State for fingerprint modal
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [selectedStaff, setSelectedStaff] = useState(null);
 
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage, setItemsPerPage] = useState(5);
@@ -27,10 +32,43 @@ const Table = ({ data, toggleAdd, handleUpdate }) => {
             confirmButtonText: "Yes, Delete it!"
         }).then(async (result) => {
             if (result.isConfirmed) {
-                await deleteUser(data, token)
+                await deleteUser(data, token);
             }
         });
-    }
+    };
+    
+    // Handle opening the fingerprint registration modal
+    const handleFingerprintRegister = (staff) => {
+        // Check if the Fingerprint SDK is available
+        if (!window.Fingerprint) {
+            Swal.fire({
+                title: "SDK Not Available",
+                text: "The Fingerprint SDK is not available. Please make sure you've included the required scripts.",
+                icon: "error"
+            });
+            return;
+        }
+        
+        setSelectedStaff(staff);
+        setIsModalOpen(true);
+    };
+    
+    // Handle successful fingerprint capture
+    const handleFingerprintCapture = (data) => {
+        // Log the data (staff ID and fingerprint)
+        console.log("Fingerprint Captured:", data);
+        
+        // Here you would typically send this data to your API
+        // Example:
+        // saveFingerprintToAPI(data.staffId, data.fingerprint);
+        
+        Swal.fire({
+            title: "Success!",
+            text: "Fingerprint registered successfully.",
+            icon: "success"
+        });
+    };
+
     useEffect(() => {
         if (data || searchTerm) {
             const term = searchTerm.toLowerCase();
@@ -49,7 +87,7 @@ const Table = ({ data, toggleAdd, handleUpdate }) => {
             );
 
             if (filtered.length === 0 && searchTerm) {
-                setSearchResult(`No result found for "${searchTerm}"`)
+                setSearchResult(`No result found for "${searchTerm}"`);
             } else {
                 setSearchResult("");
             }
@@ -57,6 +95,38 @@ const Table = ({ data, toggleAdd, handleUpdate }) => {
             setCurrentPage(1);
         }
     }, [searchTerm, data]);
+
+    // Add script loading effect
+    useEffect(() => {
+        // Check if scripts are already loaded
+        if (window.Fingerprint) return;
+        
+        // Load the necessary scripts for the Fingerprint SDK
+        const loadScript = (src) => {
+            return new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = src;
+                script.onload = resolve;
+                script.onerror = reject;
+                document.head.appendChild(script);
+            });
+        };
+        
+        const loadSDK = async () => {
+            try {
+                // Load dependencies first
+                await loadScript('/scripts/es6-shim.js');
+                await loadScript('/scripts/websdk.client.bundle.min.js');
+                // Then load the SDK
+                await loadScript('/scripts/fingerprint.sdk.min.js');
+                console.log("Fingerprint SDK loaded successfully");
+            } catch (error) {
+                console.error("Failed to load Fingerprint SDK:", error);
+            }
+        };
+        
+        loadSDK();
+    }, []);
 
     const indexOfLastItem = currentPage * itemsPerPage;
     const indexOfFirstItem = indexOfLastItem - itemsPerPage;
@@ -78,8 +148,10 @@ const Table = ({ data, toggleAdd, handleUpdate }) => {
     }
 
     const renderPagination = () => {
+        // Pagination component remains the same
         return (
             <div className="flex items-center justify-between border-t border-gray-200 bg-white px-4 py-3 sm:px-6">
+                {/* Existing pagination code */}
                 <div className="flex flex-1 justify-between sm:hidden">
                     <button
                         onClick={() => handlePageChange(Math.max(1, currentPage - 1))}
@@ -216,6 +288,12 @@ const Table = ({ data, toggleAdd, handleUpdate }) => {
                                     >
                                         Delete
                                     </button>
+                                    <button
+                                        className='p-2 bg-green-200 text-green-800 rounded-md hover:bg-green-300'
+                                        onClick={() => handleFingerprintRegister(_data)}
+                                    >
+                                        Register Fingerprint
+                                    </button>
                                 </td>
                             </tr>
                         ))
@@ -223,8 +301,18 @@ const Table = ({ data, toggleAdd, handleUpdate }) => {
                 </tbody>
             </table>
             {!searchResult && renderPagination()}
+            
+            {/* Fingerprint Modal */}
+            {isModalOpen && selectedStaff && (
+                <FingerprintModal
+                    isOpen={isModalOpen}
+                    onClose={() => setIsModalOpen(false)}
+                    onCapture={handleFingerprintCapture}
+                    staffId={selectedStaff._id}
+                />
+            )}
         </div>
-    )
-}
+    );
+};
 
-export default Table
+export default Table;

@@ -42,6 +42,16 @@ const UserSchema = new mongoose.Schema({
         enum: ['ADMIN', 'STAFF'],
         default: 'STAFF'
     },
+
+    department: { 
+      type: String, 
+      required: true 
+    },
+    
+    position: { 
+      type: String, 
+      required: true 
+    },
     
     createdAt: {
         type: Date,
