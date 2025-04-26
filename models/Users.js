@@ -1,34 +1,48 @@
 // server/models/User.js
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
 
 const UserSchema = new mongoose.Schema({
-    name: {
+    firstname: {
         type: String,
         required: [true, 'Please add a name'],
         trim: true
     },
+
+    middlename: {
+        type: String,
+        trim: true
+    },
+
+    lastname: {
+        type: String,
+        required: [true, 'Please add a lastname'],
+        trim: true
+    },
+
     email: {
         type: String,
         required: [true, 'Please add an email'],
-        unique: true,
+        unique: [true, "This email already exist!"],
         match: [
             /^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/,
             'Please add a valid email'
         ]
     },
+
     password: {
         type: String,
         required: [true, 'Please add a password'],
         minlength: 6,
         select: false
     },
+
     role: {
         type: String,
         enum: ['ADMIN', 'STAFF'],
         default: 'STAFF'
     },
+    
     createdAt: {
         type: Date,
         default: Date.now

@@ -35,7 +35,9 @@ const HeroPage = () => {
                             path="/"
                             element={<Home handleToggle={handleToggle} />}
                         />
-                        <Route path='/about-us' element={AboutUs}></Route>
+                        <Route path='/about-us' Component={AboutUs}></Route>
+                        <Route path='/*' Component={NotFound}></Route>
+
                     </Switch>
                 </div>
 

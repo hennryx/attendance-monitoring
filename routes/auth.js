@@ -3,7 +3,7 @@ const express = require('express');
 const router = express.Router();
 const { protect, authorize } = require('../middlewares/auth');
 const { login, register, logout, provideToken } = require('../controllers/authControllers');
-const { getAllUsers } = require('../controllers/users/users');
+const { getAllUsers } = require('../controllers/users/usersController');
 
 // Login user
 router.post('/login', login);

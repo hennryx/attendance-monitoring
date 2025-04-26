@@ -5,6 +5,11 @@
   text-align: center;
 } */
 
+select {
+  background-color: white;
+  color: black;
+}
+
 .logo {
   height: 6em;
   padding: 1.5em;

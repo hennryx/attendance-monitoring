@@ -10,12 +10,13 @@ const Header = ({ handleToggle }) => {
     const navigation = [
         { name: 'Home', href: '/' },
         { name: 'About us', href: '/about-us' },
+        { name: 'Service', href: '/service' },
     ];
 
     return (
 
         <header className="absolute inset-x-0 top-0 z-50">
-            <nav aria-label="Global" className="flex items-center justify-between p-4 lg:px-8" style={{ boxShadow: "rgba(50, 50, 93, 0.25) 0px 2px 5px -1px, rgba(0, 0, 0, 0.3) 0px 1px 3px -1px" }}>
+            <nav aria-label="Global" className="flex items-center justify-between p-4 lg:px-8">
                 <div className="flex lg:flex-1">
                     <div className="-m-1.5 p-1.5">
                         <span className="sr-only">Your Company</span>

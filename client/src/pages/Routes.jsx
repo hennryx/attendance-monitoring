@@ -6,6 +6,7 @@ import Loading from '../components/loadingPage';
 import RouteWrapper from './routeWrapper';
 import ProtectedRoute from './protectRoutes';
 import useAuthStore from '../services/stores/authStore';
+import Account from './account';
 
 const Routes = () => {
     const { role } = useAuthStore();
@@ -18,6 +19,7 @@ const Routes = () => {
     }, [role]);
 
     if (loading) return <Loading />;
+    if(!role && loading) return <NotFound/>
 
     return (
         <Switch location={location} key={location.pathname}>
@@ -53,6 +55,7 @@ const Routes = () => {
                 );
             })}
 
+            <Route path="/account" element={<Account />} />
             <Route path="*" element={<NotFound />} />
         </Switch>
     );

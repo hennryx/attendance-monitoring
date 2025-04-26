@@ -6,6 +6,8 @@ exports.login = async (req, res) => {
 
     try {
         const { email, password } = req.body;
+        console.log("hey");
+        
 
         // Validate email & password
         if (!email || !password) {
@@ -58,22 +60,25 @@ exports.login = async (req, res) => {
 
 exports.register = async (req, res) => {
     try {
-        const { name, email, password } = req.body;
+        const data = req.body;
+        
+        console.log(data);
         
         // Create user
-        const user = await Users.create({
-            name,
-            email,
-            password
-        });
+        const user = await Users.create(data);
 
         // Create token
         const token = generateToken(res, user._id);
 
+        const userData = user.toObject();
+        delete userData.password;
+
         res.status(201).json({
             success: true,
-            token
+            token,
+            user: userData
         });
+        
     } catch (err) {
         res.status(400).json({
             success: false,

@@ -1,19 +1,19 @@
 import axios from "axios";
 import { TOKENHEADER } from "..";
 
-const updateData = async (url, formData, token) => {
+const updateData = async (url, data, token) => {
     try {
         const headers = {
             Authorization: `${TOKENHEADER} ${token}`,
         };
 
-        if (formData instanceof FormData) {
+        if (data instanceof FormData) {
             headers['Content-Type'] = 'multipart/form-data';
         }
 
         const response = await axios.put(
             url, 
-            formData, 
+            data, 
             { headers }
         )
 

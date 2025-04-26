@@ -13,7 +13,8 @@ const Login = ({ isOpen, handleClose, handleToggle }) => {
         email: "",
         password: ""
     });
-    const { login, message, isSuccess, isLoading, reset } = useAuthStore();
+
+    const { login, message, isSuccess, isLoading, reset, email, logout } = useAuthStore();
     const navigate = useNavigate();
 
 
@@ -37,39 +38,43 @@ const Login = ({ isOpen, handleClose, handleToggle }) => {
             console.log("password cannot be empty!");
             return
         }
-
-        console.log("loging in...");
         await login(userData)
     }
 
     useEffect(() => {
         if (isSuccess) {
-            toast.success("Login successful!");
+            toast.success(message);
             handleClose();
             reset()
-            navigate('/dashboard');
+            if(message === 'Login successful') {
+                navigate('/dashboard');
+            }else {
+                setUserData((prev) => ({
+                    ...prev,
+                    email: "",
+                    password: ""
+                }))
+            }
+
         } else if(message){
             toast.error(message || "Something went wrong.");
-            reset()
         }
     }, [isSuccess, message])
 
-    const handleLogout = (e) => {
+    useEffect(() => {
+        if(email) {
+            setUserData((prev) => ({...prev, email}))
+        }
+    }, [email])
+
+    const handleLogout = async (e) => {
         e.preventDefault();
-        console.log("Logging out");
-        toast.success(response.payload)
-        handleClose()
-        window.location.reload()
-
-        /* 
-            const errorMessage = err?.message || message || "Logout failed";
-            toast.error(errorMessage); */
+        await logout()
     }
-
 
     const handleKeyDown = (e) => {
         if (e.key === 'Enter') {
-            handleSubmit(e); // Trigger login on Enter key press
+            handleSubmit(e);
         }
     }
 
@@ -152,9 +157,9 @@ const Login = ({ isOpen, handleClose, handleToggle }) => {
                                         </button>
                                     )}
                                 </div>
-                                {/* {errorMsg && (
+                                {errorMsg && (
                                     <span className='text-red-600'>{errorMsg}</span>
-                                )} */}
+                                )}
                                 <div className="flex flex-col gap-2 pt-2 w-full">
                                     <button
                                         className="btn w-max border-0 justify-center rounded-md bg-blue-300 px-3 py-1.5 text-sm font-semibold leading-6 text-blue-800 shadow-sm hover:bg-blue-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-650"
@@ -162,14 +167,14 @@ const Login = ({ isOpen, handleClose, handleToggle }) => {
                                     >
                                         Login
                                     </button>
-                                    {/* {email && (
+                                    {email && (
                                         <button 
-                                            className="btn w-full justify-center rounded-md bg-gray-100 px-3 py-1.5 text-sm font-semibold leading-6 text-gray-800 shadow-sm hover:bg-gray-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-200"
+                                            className="btn w-full justify-center rounded-md bg-gray-300 px-3 py-1.5 text-sm font-semibold leading-6 text-gray-800 shadow-sm hover:bg-gray-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-200"
                                             onClick={(e) => handleLogout(e)}
                                         >
                                             Logout
                                         </button>
-                                    )} */}
+                                    )}
                                 </div>
                                 <label className="signup-link w-full text-start">
                                     Forget Password?

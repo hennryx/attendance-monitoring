@@ -4,7 +4,6 @@ const login = async (url, _data) => {
     try {
         const response = await axios.post(url, _data);
         const { data } = response;
-        console.log(data);
         localStorage.setItem("token", data.token);
         
         return data;
