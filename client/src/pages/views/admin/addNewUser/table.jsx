@@ -249,7 +249,7 @@ const Table = ({ data, toggleAdd, handleUpdate }) => {
                                 onClick={() => toggleAdd((prev) => !prev)}
                             >
                                 <IoIosAdd />
-                                Add New User
+                                Add New Staff
                             </button>
                         </div>
                     </div>

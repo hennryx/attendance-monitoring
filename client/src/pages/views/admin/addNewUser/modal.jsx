@@ -5,7 +5,7 @@ import Swal from 'sweetalert2'
 import useUsersStore from '../../../../services/stores/users/usersStore';
 import useAuthStore from '../../../../services/stores/authStore';
 
-const Modal = ({ isOpen, setIsOpen, setUserData, userData, isUpdate, setIsUpdate }) => {
+const Modal = ({ isOpen, setIsOpen, setUserData, userData, isUpdate, setIsUpdate, initialData }) => {
     const [errorMsg, setErrorMsg] = useState("");
     const { signup, message, isSuccess, user, reset, update } = useUsersStore();
     const { token } = useAuthStore()
@@ -21,9 +21,9 @@ const Modal = ({ isOpen, setIsOpen, setUserData, userData, isUpdate, setIsUpdate
     const handleSubmit = async (e) => {
         e.preventDefault();
 
-        const { firstname, lastname, email, password } = userData;
+        const { firstname, lastname, email, password, department, position } = userData;
 
-        if (firstname === "" || lastname === "" || email === "" || password === "") {
+        if (firstname === "" || lastname === "" || email === "" || password === "" || department === "" || position === "") {
             setErrorMsg("Please fill all the required fields!");
             return;
         }
@@ -63,14 +63,7 @@ const Modal = ({ isOpen, setIsOpen, setUserData, userData, isUpdate, setIsUpdate
     const handleCancel = () => {
         setIsOpen(false);
         setIsUpdate(false);
-        setUserData(() => ({
-            firstname: "",
-            middlename: "",
-            lastname: "",
-            email: "",
-            password: "",
-            role: "STAFF"
-        }));
+        setUserData(() => (initialData));
     }
 
     useEffect(() => {
@@ -155,6 +148,42 @@ const Modal = ({ isOpen, setIsOpen, setUserData, userData, isUpdate, setIsUpdate
                                                             onChange={(e) => handleUserData(e.target.name, e.target.value)}
                                                             type="text"
                                                             autoComplete="family-name"
+                                                            className="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6"
+                                                        />
+                                                    </div>
+                                                </div>
+
+                                                <div className="sm:col-span-6">
+                                                    <label htmlFor="department" className="block text-sm/6 font-medium text-gray-900">
+                                                        <span className='required'></span>
+                                                        Department
+                                                    </label>
+                                                    <div className="mt-1">
+                                                        <input
+                                                            required
+                                                            id="department"
+                                                            name="department"
+                                                            value={userData.department}
+                                                            onChange={(e) => handleUserData(e.target.name, e.target.value)}
+                                                            type="text"
+                                                            className="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6"
+                                                        />
+                                                    </div>
+                                                </div>
+
+                                                <div className="sm:col-span-6">
+                                                    <label htmlFor="position" className="block text-sm/6 font-medium text-gray-900">
+                                                        <span className='required'></span>
+                                                        Position
+                                                    </label>
+                                                    <div className="mt-1">
+                                                        <input
+                                                            required
+                                                            id="position"
+                                                            name="position"
+                                                            value={userData.position}
+                                                            onChange={(e) => handleUserData(e.target.name, e.target.value)}
+                                                            type="text"
                                                             className="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6"
                                                         />
                                                     </div>

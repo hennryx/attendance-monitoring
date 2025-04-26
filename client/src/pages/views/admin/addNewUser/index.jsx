@@ -11,6 +11,8 @@ const info = {
     lastname: "",
     email: "",
     password: "",
+    department: "",
+    position: "",
     role: "STAFF"
 }
 
@@ -109,6 +111,7 @@ const AddNewUser = () => {
                 userData={newUser}
                 isUpdate={isUpdate}
                 setIsUpdate={setIsUpdate}
+                initialData={info}
             />
         </>
     )
