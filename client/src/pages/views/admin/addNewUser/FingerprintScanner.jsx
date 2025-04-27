@@ -42,7 +42,6 @@ export const useFingerprintScanner = () => {
           setAcquisitionStarted(false);
         };
 
-<<<<<<< Updated upstream
         fingerprintSdk.onSamplesAcquired = (s) => {
           console.log("Sample acquired:", s);
           // Handle samples
@@ -60,14 +59,6 @@ export const useFingerprintScanner = () => {
 
               // Auto stop after capture
               stopCapture();
-=======
-            // If there's at least one reader, select it automatically
-            console.log(readersArray, "<---");
-            
-            if (readersArray.length > 0) {
-                setSelectedReader(readersArray[0]);
-                setStatus("Reader connected. Ready to scan.");
->>>>>>> Stashed changes
             } else {
               console.error("No sample data in response");
               setStatus("No sample data received");
