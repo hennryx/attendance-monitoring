@@ -1,11 +1,17 @@
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-const { protect, authorize } = require('../../middlewares/auth');
-const { getAllUsers, updateUser, deleteUser } = require('../../controllers/users/usersController');
+const { protect, authorize } = require("../../middlewares/auth");
+const {
+  getAllUsers,
+  updateUser,
+  deleteUser,
+  enrollUSer,
+} = require("../../controllers/users/usersController");
 
 // Get all users - admin only
-router.get('/getAll', protect, authorize('ADMIN'), getAllUsers);
-router.delete('/delete', protect, deleteUser);
-router.put('/update', protect, updateUser);
+router.get("/getAll", protect, authorize("ADMIN"), getAllUsers);
+router.delete("/delete", protect, deleteUser);
+router.put("/update", protect, updateUser);
+router.post("/enroll", protect, enrollUSer);
 
 module.exports = router;
