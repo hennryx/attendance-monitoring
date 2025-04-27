@@ -215,48 +215,40 @@ export const useFingerprintScanner = () => {
   };
 
   // Scan fingerprint and return result with timeout
+  // Fix scanFingerprint function in FingerprintScanner.jsx
+
   const scanFingerprint = async (timeoutMs = 30000) => {
     return new Promise(async (resolve, reject) => {
-      if (!sdk) {
-        await initializeSdk();
+      try {
+        // Check SDK initialization first
         if (!sdk) {
-          reject(new Error("Failed to initialize SDK"));
-          return;
+          const initialized = await initializeSdk();
+          if (!initialized || !sdk) {
+            reject(new Error("Failed to initialize SDK"));
+            return;
+          }
         }
-      }
 
-      // Clear any existing fingerprint first
-      setFingerprint(null);
+        // Clear any existing fingerprint first
+        setFingerprint(null);
+        setScanQuality("");
 
-      // Create a specific watcher for the fingerprint value
-      const fingerprintWatcher = setInterval(() => {
-        if (fingerprint) {
-          clearInterval(fingerprintWatcher);
-          resolve(fingerprint);
-        }
-      }, 500);
+        // Store original callback references to restore later
+        const originalSamplesCallback = sdk.onSamplesAcquired;
+        const originalQualityCallback = sdk.onQualityReported;
+        const originalErrorCallback = sdk.onCommunicationFailed;
 
-      // Start the capture process
-      const captureStarted = await startCapture();
-      if (!captureStarted) {
-        clearInterval(fingerprintWatcher);
-        reject(new Error(`Failed to start capture: ${status}`));
-        return;
-      }
+        // Create a cleanup function to restore original callbacks and clear timers
+        const cleanup = () => {
+          if (sdk) {
+            sdk.onSamplesAcquired = originalSamplesCallback;
+            sdk.onQualityReported = originalQualityCallback;
+            sdk.onCommunicationFailed = originalErrorCallback;
+          }
+          if (timeoutId) clearTimeout(timeoutId);
+        };
 
-      // Set timeout
-      const timeoutId = setTimeout(() => {
-        clearInterval(fingerprintWatcher);
-        stopCapture();
-        reject(new Error("Fingerprint scan timed out. Please try again."));
-      }, timeoutMs);
-
-      // Update the onSamplesAcquired callback to directly resolve
-      if (sdk) {
-        // Store original callback reference
-        const originalCallback = sdk.onSamplesAcquired;
-
-        // Override the callback
+        // Set up temporary callbacks
         sdk.onSamplesAcquired = (s) => {
           console.log("Sample acquired in scanFingerprint:", s);
 
@@ -275,13 +267,14 @@ export const useFingerprintScanner = () => {
               setFingerprint(base64Image);
               setStatus("Fingerprint captured successfully");
 
-              // Resolve the promise directly
-              clearTimeout(timeoutId);
-              clearInterval(fingerprintWatcher);
-              stopCapture();
-              resolve(base64Image);
+              // Stop capture first before resolving
+              stopCapture().then(() => {
+                cleanup();
+                resolve(base64Image);
+              });
             } else {
               console.error("No sample data in response");
+              setStatus("No sample data received");
             }
           } catch (error) {
             console.error(
@@ -293,24 +286,67 @@ export const useFingerprintScanner = () => {
             try {
               if (
                 typeof s.samples === "string" &&
-                s.samples.includes("base64")
+                (s.samples.includes("base64") ||
+                  s.samples.startsWith("data:image"))
               ) {
-                clearTimeout(timeoutId);
-                clearInterval(fingerprintWatcher);
-                stopCapture();
-                setFingerprint(s.samples);
-                resolve(s.samples);
+                stopCapture().then(() => {
+                  setFingerprint(s.samples);
+                  cleanup();
+                  resolve(s.samples);
+                });
+                return;
               }
             } catch (innerError) {
               console.error("Alternative format failed:", innerError);
             }
+
+            // If we get here, both attempts failed but we don't want to reject yet
+            setStatus(`Error processing sample: ${error.message}`);
           }
 
           // Call original callback if it exists
-          if (originalCallback) {
-            originalCallback(s);
+          if (originalSamplesCallback) {
+            originalSamplesCallback(s);
           }
         };
+
+        // Error handler
+        sdk.onCommunicationFailed = (e) => {
+          console.error("Communication failed during scan:", e);
+          setStatus("Communication failed during scan");
+
+          stopCapture().then(() => {
+            cleanup();
+            reject(
+              new Error("Communication with the fingerprint reader failed.")
+            );
+          });
+
+          // Still call original callback
+          if (originalErrorCallback) {
+            originalErrorCallback(e);
+          }
+        };
+
+        // Start the capture process
+        const captureStarted = await startCapture();
+        if (!captureStarted) {
+          cleanup();
+          reject(new Error(`Failed to start capture: ${status}`));
+          return;
+        }
+
+        // Set timeout
+        const timeoutId = setTimeout(() => {
+          stopCapture().then(() => {
+            cleanup();
+            reject(new Error("Fingerprint scan timed out. Please try again."));
+          });
+        }, timeoutMs);
+      } catch (error) {
+        console.error("Unexpected error in scanFingerprint:", error);
+        stopCapture();
+        reject(new Error(`Scan failed: ${error.message}`));
       }
     });
   };
@@ -363,10 +399,12 @@ export const FingerprintModal = ({ isOpen, onClose, onCapture, staffId }) => {
     scanFingerprint,
     refreshSdk,
     isInitialized,
+    stopCapture, // Make sure to include this
   } = useFingerprintScanner();
 
   const [isScanning, setIsScanning] = useState(false);
   const [scanError, setScanError] = useState(null);
+  const [scanTimeout, setScanTimeout] = useState(null);
 
   // Effect to check SDK initialization
   useEffect(() => {
@@ -409,6 +447,16 @@ export const FingerprintModal = ({ isOpen, onClose, onCapture, staffId }) => {
     };
   }, [isOpen, isInitialized, readers.length, refreshSdk]);
 
+  useEffect(() => {
+    return () => {
+      // Ensure we clean up if the modal is closed during scanning
+      if (isScanning) {
+        stopCapture();
+        if (scanTimeout) clearTimeout(scanTimeout);
+      }
+    };
+  }, [isScanning, stopCapture]);
+
   const handleScan = async () => {
     if (isScanning) return;
 
@@ -426,14 +474,31 @@ export const FingerprintModal = ({ isOpen, onClose, onCapture, staffId }) => {
 
     try {
       console.log("Starting fingerprint scan...");
+
+      // Create a timeout to force stop scanning if it takes too long
+      const timeoutId = setTimeout(() => {
+        if (isScanning) {
+          stopCapture();
+          setScanError("Scan failed to complete in time. Please try again.");
+          setIsScanning(false);
+        }
+      }, 35000); // Slightly longer than the scanFingerprint timeout
+
+      setScanTimeout(timeoutId);
+
       const fingerprintData = await scanFingerprint(30000); // 30 second timeout
+      clearTimeout(timeoutId);
+
       console.log(
         "Scan completed successfully:",
         fingerprintData ? "Data received" : "No data"
       );
 
       if (fingerprintData) {
-        const cleanedFingerprintData = fingerprintData.split(",")[1];
+        // Extract just the base64 part if it's a data URL
+        const cleanedFingerprintData = fingerprintData.includes("base64")
+          ? fingerprintData.split(",")[1]
+          : fingerprintData;
 
         onCapture({
           staffId,
@@ -464,6 +529,8 @@ export const FingerprintModal = ({ isOpen, onClose, onCapture, staffId }) => {
         icon: "error",
       });
     } finally {
+      clearTimeout(scanTimeout);
+      setScanTimeout(null);
       setIsScanning(false);
     }
   };

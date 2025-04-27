@@ -38,71 +38,83 @@ const Table = ({ data, toggleAdd, handleUpdate }) => {
   };
 
   useEffect(() => {
-    // Check if scripts are already loaded
-    if (window.Fingerprint) {
-      console.log("Fingerprint SDK already loaded");
-      return;
-    }
+    // Global flag to track loading attempts
+    if (!window.fingerprintScriptLoading) {
+      window.fingerprintScriptLoading = true;
 
-    // Enhanced script loading with better error handling and verification
-    const loadScript = (src) => {
-      return new Promise((resolve, reject) => {
-        // Check if script already exists
-        const existingScript = document.querySelector(`script[src="${src}"]`);
-        if (existingScript) {
-          resolve();
-          return;
-        }
+      // Check if scripts are already loaded
+      if (window.Fingerprint && window.Fingerprint.WebApi) {
+        console.log("Fingerprint SDK already loaded");
+        window.fingerprintScriptLoading = false;
+        return;
+      }
 
-        const script = document.createElement("script");
-        script.src = src;
-        script.async = true;
+      // Enhanced script loading with better error handling and verification
+      const loadScript = (src) => {
+        return new Promise((resolve, reject) => {
+          // Check if script already exists
+          const existingScript = document.querySelector(`script[src="${src}"]`);
+          if (existingScript) {
+            console.log(`Script already loaded: ${src}`);
+            resolve();
+            return;
+          }
 
-        script.onload = () => {
-          console.log(`Script loaded: ${src}`);
-          resolve();
-        };
+          const script = document.createElement("script");
+          script.src = src;
+          script.async = true;
 
-        script.onerror = (error) => {
-          console.error(`Error loading script: ${src}`, error);
-          reject(new Error(`Failed to load ${src}`));
-        };
+          script.onload = () => {
+            console.log(`Script loaded: ${src}`);
+            resolve();
+          };
 
-        document.head.appendChild(script);
-      });
-    };
+          script.onerror = (error) => {
+            console.error(`Error loading script: ${src}`, error);
+            reject(new Error(`Failed to load ${src}`));
+          };
 
-    const loadSDK = async () => {
-      try {
-        console.log("Loading Fingerprint SDK scripts...");
-        // Load dependencies first
-        await loadScript("/scripts/es6-shim.js");
-        await loadScript("/scripts/websdk.client.bundle.min.js");
-        // Then load the SDK
-        await loadScript("/scripts/fingerprint.sdk.min.js");
+          document.head.appendChild(script);
+        });
+      };
 
-        // Verify SDK was loaded properly
-        if (window.Fingerprint && window.Fingerprint.WebApi) {
-          console.log("Fingerprint SDK loaded successfully");
-        } else {
-          console.error("SDK objects not found after loading scripts");
+      const loadSDK = async () => {
+        try {
+          console.log("Loading Fingerprint SDK scripts...");
+          // Load dependencies first
+          await loadScript("/scripts/es6-shim.js");
+          await loadScript("/scripts/websdk.client.bundle.min.js");
+          // Then load the SDK
+          await loadScript("/scripts/fingerprint.sdk.min.js");
+
+          // Wait a moment for initialization
+          await new Promise((resolve) => setTimeout(resolve, 500));
+
+          // Verify SDK was loaded properly
+          if (window.Fingerprint && window.Fingerprint.WebApi) {
+            console.log("Fingerprint SDK loaded successfully");
+          } else {
+            console.error("SDK objects not found after loading scripts");
+            Swal.fire({
+              title: "SDK Not Available",
+              text: "The Fingerprint SDK could not be initialized. Please check your network connection and try again.",
+              icon: "error",
+            });
+          }
+        } catch (error) {
+          console.error("Failed to load Fingerprint SDK:", error);
           Swal.fire({
-            title: "SDK Not Available",
-            text: "The Fingerprint SDK could not be initialized. Please check your network connection and try again.",
+            title: "Failed to Load SDK",
+            text: "Could not load the fingerprint SDK scripts. Please check your network connection and try again.",
             icon: "error",
           });
+        } finally {
+          window.fingerprintScriptLoading = false;
         }
-      } catch (error) {
-        console.error("Failed to load Fingerprint SDK:", error);
-        Swal.fire({
-          title: "Failed to Load SDK",
-          text: "Could not load the fingerprint SDK scripts. Please check your network connection and try again.",
-          icon: "error",
-        });
-      }
-    };
+      };
 
-    loadSDK();
+      loadSDK();
+    }
   }, []);
 
   // Handle opening the fingerprint registration modal
@@ -143,11 +155,11 @@ const Table = ({ data, toggleAdd, handleUpdate }) => {
     // Example:
     // saveFingerprintToAPI(data.staffId, data.fingerprint);
 
-    // Swal.fire({
-    //     title: "Success!",
-    //     text: "Fingerprint registered successfully.",
-    //     icon: "success"
-    // });
+    Swal.fire({
+      title: "Success!",
+      text: "Fingerprint registered successfully.",
+      icon: "success",
+    });
     await enrollFingerPrint(data, token);
   };
 
