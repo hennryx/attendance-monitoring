@@ -1,4 +1,4 @@
-// Create a new file: FingerprintScanner.jsx
+// file: FingerprintScanner.jsx
 
 import { useEffect, useState, useCallback } from "react";
 import { HiOutlineX } from "react-icons/hi";
@@ -447,15 +447,18 @@ export const FingerprintModal = ({ isOpen, onClose, onCapture, staffId }) => {
     };
   }, [isOpen, isInitialized, readers.length, refreshSdk]);
 
-  useEffect(() => {
-    return () => {
-      // Ensure we clean up if the modal is closed during scanning
-      if (isScanning) {
-        stopCapture();
-        if (scanTimeout) clearTimeout(scanTimeout);
-      }
-    };
-  }, [isScanning, stopCapture]);
+  //   code i removed to make it worked
+  //   useEffect(() => {
+  //     return () => {
+  //       // Ensure we clean up if the modal is closed during scanning
+  //       if (isScanning) {
+  //         console.log("Stop capturing");
+
+  //         stopCapture();
+  //         if (scanTimeout) clearTimeout(scanTimeout);
+  //       }
+  //     };
+  //   }, [isScanning, stopCapture]);
 
   const handleScan = async () => {
     if (isScanning) return;
@@ -502,7 +505,7 @@ export const FingerprintModal = ({ isOpen, onClose, onCapture, staffId }) => {
 
         onCapture({
           staffId,
-          fingerprint: cleanedFingerprintData,
+          fingerPrint: cleanedFingerprintData,
         });
 
         // Show success message

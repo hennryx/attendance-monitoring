@@ -1,3 +1,4 @@
+const FingerPrint = require("../../models/FingerPrint");
 const Users = require("../../models/Users");
 
 exports.getAllUsers = async (req, res) => {
@@ -91,9 +92,44 @@ exports.deleteUser = async (req, res) => {
 
 exports.enrollUSer = async (req, res) => {
   try {
-    const data = req.body;
-    console.log(data);
-    return;
+    const { staffId, fingerPrint } = req.body;
+    console.log(staffId);
+
+    if (!staffId) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing ID",
+        message: "No ID provided for Staff",
+      });
+    }
+
+    const existingStaff = await FingerPrint.findOne({ staffId });
+
+    if (existingStaff) {
+      await FingerPrint.findOneAndUpdate(
+        { staffId },
+        { fingerPrint },
+        { new: true }
+      );
+      return res.status(200).json({
+        success: true,
+        message: "User Fingerprint updated successfully!",
+      });
+    }
+
+    const newFingerprint = await FingerPrint.create({ staffId, fingerPrint });
+
+    if (!newFingerprint) {
+      return res.status(400).json({
+        success: false,
+        message: "User Fingerprint Enrollment failed!",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "User Fingerprint Enrolled successfully!",
+    });
   } catch (error) {
     res.status(500).json({
       success: false,

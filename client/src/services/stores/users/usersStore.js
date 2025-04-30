@@ -94,8 +94,7 @@ const useUsersStore = create((set, get) => ({
       set({
         isSuccess: res.success,
         isLoading: false,
-        message: "User Fingerprint Enrolled successfully!",
-        user: res.user,
+        message: res.message,
       });
     } catch (error) {
       set({
