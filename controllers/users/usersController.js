@@ -1,5 +1,6 @@
 const FingerPrint = require("../../models/FingerPrint");
 const Users = require("../../models/Users");
+const { extractFeatures, compareFeatures } = require("../../utils/fingerprint");
 
 exports.getAllUsers = async (req, res) => {
   try {
@@ -93,7 +94,8 @@ exports.deleteUser = async (req, res) => {
 exports.enrollUSer = async (req, res) => {
   try {
     const { staffId, fingerPrint } = req.body;
-    console.log(staffId);
+
+    const features = await extractFeatures(fingerPrint);
 
     if (!staffId) {
       return res.status(400).json({
@@ -108,7 +110,7 @@ exports.enrollUSer = async (req, res) => {
     if (existingStaff) {
       await FingerPrint.findOneAndUpdate(
         { staffId },
-        { fingerPrint },
+        { fingerPrint, features },
         { new: true }
       );
       return res.status(200).json({
@@ -117,7 +119,17 @@ exports.enrollUSer = async (req, res) => {
       });
     }
 
-    const newFingerprint = await FingerPrint.create({ staffId, fingerPrint });
+    const newFingerprint = await FingerPrint.create({
+      staffId,
+      fingerPrint,
+      features,
+    });
+
+    await Users.findByIdAndUpdate(
+      { _id: staffId },
+      { hasFingerPrint: true },
+      { new: true }
+    );
 
     if (!newFingerprint) {
       return res.status(400).json({
@@ -137,3 +149,66 @@ exports.enrollUSer = async (req, res) => {
     });
   }
 };
+
+exports.matchFingerprint = async (req, res) => {
+  try {
+    const { fingerPrint } = req.body;
+
+    if (!fingerPrint) {
+      return res.status(400).json({ error: "Missing fingerprint data" });
+    }
+
+    console.log("hey");
+
+    // Extract features from the probe fingerprint
+    const probeFeatures = await extractFeatures(fingerPrint);
+
+    // Fetch all stored fingerprints from database
+    const storedFingerprints = await FingerPrint.find();
+
+    let bestMatch = {
+      userId: null,
+      score: 0,
+    };
+
+    const MATCH_THRESHOLD = 0.4; // Minimum score to consider a match
+
+    // Compare with each stored fingerprint
+    for (const stored of storedFingerprints) {
+      const score = compareFeatures(probeFeatures, stored.features);
+
+      if (score > bestMatch.score) {
+        bestMatch = {
+          staffId: stored.staffId,
+          score,
+        };
+      }
+    }
+
+    // Check if best match exceeds threshold
+    if (bestMatch.score >= MATCH_THRESHOLD) {
+      const userFingerprint = await Users.find({ _id: bestMatch.staffId });
+
+      console.log(userFingerprint);
+
+      res.json({
+        success: true,
+        matched: true,
+        staffId: bestMatch.staffId,
+        score: bestMatch.score,
+      });
+    } else {
+      console.log("No match");
+      res.json({
+        success: false,
+        matched: false,
+        bestScore: bestMatch.score,
+      });
+    }
+  } catch (error) {
+    console.error("Error verifying fingerprint:", error);
+    res.status(500).json({ error: "Server error" });
+  }
+};
+
+exports.verifyFingerprint = async (req, res) => {};

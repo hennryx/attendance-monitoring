@@ -211,7 +211,7 @@ const Sidebar = ({ role, token }) => {
       >
         <div
           className={`bg-blue-800 h-full w-full flex items-center transition-[height] duration-500 ease-in-out ${
-            isCollapsed ? "justify-center p-4" : "justify-start py-4 pl-10 pr-4"
+            isCollapsed ? "justify-center p-2" : "justify-start py-4 pl-10 pr-4"
           } gap-4`}
           onClick={(e) => setIsAccOpen((prev) => !prev)}
         >

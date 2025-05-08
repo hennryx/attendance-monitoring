@@ -3,7 +3,7 @@ import { IoIosAdd } from "react-icons/io";
 import Swal from "sweetalert2";
 import useUsersStore from "../../../../services/stores/users/usersStore";
 import useAuthStore from "../../../../services/stores/authStore";
-import { FingerprintModal } from "./FingerprintScanner";
+import { FingerprintModal } from "./FingerprintModal";
 
 const Table = ({ data, toggleAdd, handleUpdate }) => {
   const { deleteUser, enrollFingerPrint } = useUsersStore();
@@ -19,40 +19,18 @@ const Table = ({ data, toggleAdd, handleUpdate }) => {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(5);
 
-  const handleDelete = (e, data) => {
-    e.preventDefault();
-
-    Swal.fire({
-      title: "Are you sure?",
-      text: "You won't be able to revert this!",
-      icon: "warning",
-      showCancelButton: true,
-      confirmButtonColor: "#3085d6",
-      cancelButtonColor: "#d33",
-      confirmButtonText: "Yes, Delete it!",
-    }).then(async (result) => {
-      if (result.isConfirmed) {
-        await deleteUser(data, token);
-      }
-    });
-  };
-
   useEffect(() => {
-    // Global flag to track loading attempts
     if (!window.fingerprintScriptLoading) {
       window.fingerprintScriptLoading = true;
 
-      // Check if scripts are already loaded
       if (window.Fingerprint && window.Fingerprint.WebApi) {
         console.log("Fingerprint SDK already loaded");
         window.fingerprintScriptLoading = false;
         return;
       }
 
-      // Enhanced script loading with better error handling and verification
       const loadScript = (src) => {
         return new Promise((resolve, reject) => {
-          // Check if script already exists
           const existingScript = document.querySelector(`script[src="${src}"]`);
           if (existingScript) {
             console.log(`Script already loaded: ${src}`);
@@ -81,16 +59,12 @@ const Table = ({ data, toggleAdd, handleUpdate }) => {
       const loadSDK = async () => {
         try {
           console.log("Loading Fingerprint SDK scripts...");
-          // Load dependencies first
           await loadScript("/scripts/es6-shim.js");
           await loadScript("/scripts/websdk.client.bundle.min.js");
-          // Then load the SDK
           await loadScript("/scripts/fingerprint.sdk.min.js");
 
-          // Wait a moment for initialization
           await new Promise((resolve) => setTimeout(resolve, 500));
 
-          // Verify SDK was loaded properly
           if (window.Fingerprint && window.Fingerprint.WebApi) {
             console.log("Fingerprint SDK loaded successfully");
           } else {
@@ -130,9 +104,7 @@ const Table = ({ data, toggleAdd, handleUpdate }) => {
         cancelButtonText: "Cancel",
       }).then((result) => {
         if (result.isConfirmed) {
-          // Force reload scripts
           window.Fingerprint = null;
-          // This will trigger the useEffect to reload scripts
           setIsModalOpen(false);
           setTimeout(() => {
             window.location.reload();
@@ -148,19 +120,26 @@ const Table = ({ data, toggleAdd, handleUpdate }) => {
 
   // Handle successful fingerprint capture
   const handleFingerprintCapture = async (data) => {
-    // Log the data (staff ID and fingerprint)
     console.log("Fingerprint Captured:", data);
+    await enrollFingerPrint(data, token);
+  };
 
-    // Here you would typically send this data to your API
-    // Example:
-    // saveFingerprintToAPI(data.staffId, data.fingerprint);
+  const handleDelete = (e, data) => {
+    e.preventDefault();
 
     Swal.fire({
-      title: "Success!",
-      text: "Fingerprint registered successfully.",
-      icon: "success",
+      title: "Are you sure?",
+      text: "You won't be able to revert this!",
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonColor: "#3085d6",
+      cancelButtonColor: "#d33",
+      confirmButtonText: "Yes, Delete it!",
+    }).then(async (result) => {
+      if (result.isConfirmed) {
+        await deleteUser(data, token);
+      }
     });
-    await enrollFingerPrint(data, token);
   };
 
   useEffect(() => {
@@ -194,6 +173,8 @@ const Table = ({ data, toggleAdd, handleUpdate }) => {
   const indexOfLastItem = currentPage * itemsPerPage;
   const indexOfFirstItem = indexOfLastItem - itemsPerPage;
   const currentItems = allData.slice(indexOfFirstItem, indexOfLastItem);
+  console.log(currentItems);
+
   const totalPages = Math.ceil(allData.length / itemsPerPage);
 
   const handlePageChange = (pageNumber) => {
@@ -419,7 +400,9 @@ const Table = ({ data, toggleAdd, handleUpdate }) => {
                     className="p-2 bg-green-200 text-green-800 rounded-md hover:bg-green-300"
                     onClick={() => handleFingerprintRegister(_data)}
                   >
-                    Register Fingerprint
+                    {_data?.hasFingerPrint
+                      ? "Update Fingerprint"
+                      : "Register Fingerprint"}
                   </button>
                 </td>
               </tr>

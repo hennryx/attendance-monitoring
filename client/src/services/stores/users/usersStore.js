@@ -105,6 +105,46 @@ const useUsersStore = create((set, get) => ({
     }
   },
 
+  matchFingerPrint: async (data) => {
+    set({ isLoading: true, message: "", isSuccess: false });
+
+    try {
+      const res = await axiosTools.creteData("users/match", data);
+
+      set({
+        isSuccess: res.success,
+        isLoading: false,
+        message: res.message,
+      });
+    } catch (error) {
+      set({
+        isLoading: false,
+        message: error,
+        isSuccess: false,
+      });
+    }
+  },
+
+  verifyFingerPrint: async (data) => {
+    set({ isLoading: true, message: "", isSuccess: false });
+
+    try {
+      const res = await axiosTools.creteData("users/verify", data);
+
+      set({
+        isSuccess: res.success,
+        isLoading: false,
+        message: res.message,
+      });
+    } catch (error) {
+      set({
+        isLoading: false,
+        message: error,
+        isSuccess: false,
+      });
+    }
+  },
+
   reset: () => {
     set({
       message: "",
