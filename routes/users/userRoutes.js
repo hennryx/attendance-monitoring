@@ -7,7 +7,6 @@ const {
   deleteUser,
   enrollUSer,
   matchFingerprint,
-  verifyFingerprint,
   getDeviceList,
   captureFingerprint,
 } = require("../../controllers/users/usersController");
@@ -24,6 +23,5 @@ router.post("/fingerprint/capture", captureFingerprint);
 // Fingerprint registration and matching routes
 router.post("/enroll", protect, enrollUSer);
 router.post("/match", matchFingerprint);
-router.post("/verify", verifyFingerprint);
 
 module.exports = router;
