@@ -3,7 +3,7 @@ const { spawn } = require("child_process");
 const path = require("path");
 const fs = require("fs");
 
-// Get the absolute path to the executable - adjust these paths as needed
+// Get the absolute path to the executable - adjust this path to where you'll place your executable
 const executablePath = path.resolve(
   __dirname,
   "../fingerprint-tools/FingerPrintBridge.exe"
@@ -37,7 +37,7 @@ const runFingerPrintCommand = async (args, options = {}) => {
       ...options,
       windowsVerbatimArguments: true,
       shell: true,
-      maxBuffer: 10 * 1024 * 1024,
+      maxBuffer: 10 * 1024 * 1024, // 10MB buffer to handle large fingerprint data
     });
 
     let stdout = "";
@@ -65,7 +65,7 @@ const runFingerPrintCommand = async (args, options = {}) => {
         }
 
         const result = JSON.parse(stdout);
-        resolve({ ...result, success: true });
+        resolve(result);
       } catch (err) {
         console.error(
           "Failed to parse stdout as JSON:",
@@ -87,15 +87,12 @@ const runFingerPrintCommand = async (args, options = {}) => {
 const FingerprintUtil = {
   /**
    * Get list of available fingerprint devices
-   * @returns {Promise<Array>} List of devices
+   * @returns {Promise<Object>} List of devices and success status
    */
   listDevices: async () => {
     try {
       const result = await runFingerPrintCommand(["--list-devices"]);
-      return {
-        success: true,
-        devices: result.devices || [],
-      };
+      return result;
     } catch (error) {
       console.error("Error listing devices:", error);
       return {
@@ -172,6 +169,79 @@ const FingerprintUtil = {
       return await runFingerPrintCommand(args);
     } catch (error) {
       console.error("Error matching fingerprint:", error);
+      return {
+        success: false,
+        message: error.message,
+      };
+    }
+  },
+
+  /**
+   * Verify a fingerprint against a specific template
+   * @param {Object} data Verification data
+   * @param {string} data.features Probe features to verify
+   * @param {string} data.templateId ID of the template to verify against
+   * @param {string} data.templateFeatures Features of the template to verify against
+   * @returns {Promise<Object>} Verification result
+   */
+  verifyFingerprint: async (data) => {
+    try {
+      if (!data.features) {
+        throw new Error("Missing probe features data");
+      }
+
+      if (!data.templateId || !data.templateFeatures) {
+        throw new Error("Missing template data for verification");
+      }
+
+      // For verification, we just use the match function with a single template
+      return await FingerprintUtil.matchFingerprint({
+        features: data.features,
+        templates: [
+          {
+            id: data.templateId,
+            features: data.templateFeatures,
+          },
+        ],
+      });
+    } catch (error) {
+      console.error("Error verifying fingerprint:", error);
+      return {
+        success: false,
+        message: error.message,
+      };
+    }
+  },
+
+  /**
+   * Check if the fingerprint bridge is available
+   * @returns {Promise<boolean>} True if the bridge is available
+   */
+  isBridgeAvailable: async () => {
+    try {
+      validateExecutable();
+      return true;
+    } catch (error) {
+      console.error("Fingerprint bridge is not available:", error);
+      return false;
+    }
+  },
+
+  /**
+   * Get fingerprint reader capabilities
+   * @param {string} deviceId Device ID to get capabilities for
+   * @returns {Promise<Object>} Reader capabilities
+   */
+  getReaderCapabilities: async (deviceId) => {
+    try {
+      if (!deviceId) {
+        throw new Error("Device ID is required");
+      }
+
+      const args = ["--capabilities", "--device", deviceId];
+      return await runFingerPrintCommand(args);
+    } catch (error) {
+      console.error("Error getting reader capabilities:", error);
       return {
         success: false,
         message: error.message,

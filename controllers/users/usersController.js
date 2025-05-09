@@ -94,6 +94,7 @@ exports.deleteUser = async (req, res) => {
   }
 };
 
+// Fingerprint device operations
 exports.getDeviceList = async (req, res) => {
   try {
     const result = await FingerprintUtil.listDevices();
@@ -119,7 +120,7 @@ exports.captureFingerprint = async (req, res) => {
     if (!result.success) {
       return res.status(400).json({
         success: false,
-        message: "Failed to capture fingerprint",
+        message: result.error || "Failed to capture fingerprint",
       });
     }
 
@@ -272,6 +273,81 @@ exports.matchFingerprint = async (req, res) => {
     });
   } catch (error) {
     console.error("Error matching fingerprint:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+exports.verifyFingerprint = async (req, res) => {
+  try {
+    const { userId, fingerPrint, features } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing ID",
+        message: "No user ID provided for verification",
+      });
+    }
+
+    if (!fingerPrint && !features) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing Data",
+        message: "No fingerprint data or features provided",
+      });
+    }
+
+    // Use the features from the request or the fingerprint image
+    const fingerprintFeatures = features || fingerPrint;
+
+    // Find the stored fingerprint for this user
+    const storedFingerprint = await FingerPrint.findOne({
+      staffId: userId,
+    }).lean();
+
+    if (!storedFingerprint) {
+      return res.status(404).json({
+        success: false,
+        message: "No registered fingerprint found for this user",
+      });
+    }
+
+    // Format for matching
+    const templates = [
+      {
+        id: storedFingerprint.staffId,
+        features: storedFingerprint.features,
+      },
+    ];
+
+    // Verify the fingerprint
+    const matchResult = await FingerprintUtil.matchFingerprint({
+      features: fingerprintFeatures,
+      templates: templates,
+    });
+
+    if (!matchResult.matched) {
+      return res.status(200).json({
+        success: false,
+        verified: false,
+        message: "Fingerprint verification failed",
+      });
+    }
+
+    // Get user details
+    const userInfo = await Users.findById(userId).select("-password");
+
+    res.status(200).json({
+      success: true,
+      verified: true,
+      score: matchResult.score,
+      user: userInfo,
+    });
+  } catch (error) {
+    console.error("Error verifying fingerprint:", error);
     res.status(500).json({
       success: false,
       message: error.message,
