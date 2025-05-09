@@ -1,6 +1,6 @@
 const FingerPrint = require("../../models/FingerPrint");
 const Users = require("../../models/Users");
-const { extractFeatures, compareFeatures } = require("../../utils/fingerprint");
+const FingerprintUtil = require("../../utils/fingerprintUtil");
 
 exports.getAllUsers = async (req, res) => {
   try {
@@ -49,7 +49,7 @@ exports.updateUser = async (req, res) => {
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: err.message,
+      message: error.message,
     });
   }
 };
@@ -75,6 +75,9 @@ exports.deleteUser = async (req, res) => {
       });
     }
 
+    // Also delete any associated fingerprint data
+    await FingerPrint.deleteOne({ staffId: _id });
+
     const userData = user.toObject();
     delete userData.password;
 
@@ -91,11 +94,53 @@ exports.deleteUser = async (req, res) => {
   }
 };
 
+exports.getDeviceList = async (req, res) => {
+  try {
+    const result = await FingerprintUtil.listDevices();
+    res.status(200).json(result);
+  } catch (error) {
+    console.error("Error getting devices:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+exports.captureFingerprint = async (req, res) => {
+  try {
+    const { deviceId, timeout = 30000 } = req.body;
+
+    const result = await FingerprintUtil.captureFingerprint({
+      deviceId,
+      timeout,
+    });
+
+    if (!result.success) {
+      return res.status(400).json({
+        success: false,
+        message: "Failed to capture fingerprint",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      image: result.image,
+      features: result.features,
+      quality: result.quality,
+    });
+  } catch (error) {
+    console.error("Error capturing fingerprint:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
 exports.enrollUSer = async (req, res) => {
   try {
-    const { staffId, fingerPrint } = req.body;
-
-    const features = await extractFeatures(fingerPrint);
+    const { staffId, fingerPrint, features } = req.body;
 
     if (!staffId) {
       return res.status(400).json({
@@ -105,12 +150,23 @@ exports.enrollUSer = async (req, res) => {
       });
     }
 
+    if (!fingerPrint && !features) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing Data",
+        message: "No fingerprint data provided",
+      });
+    }
+
+    // Use the features from the request or the fingerprint image
+    const fingerprintFeatures = features || fingerPrint;
+
     const existingStaff = await FingerPrint.findOne({ staffId });
 
     if (existingStaff) {
       await FingerPrint.findOneAndUpdate(
         { staffId },
-        { fingerPrint, features },
+        { fingerPrint, features: fingerprintFeatures },
         { new: true }
       );
       return res.status(200).json({
@@ -122,7 +178,7 @@ exports.enrollUSer = async (req, res) => {
     const newFingerprint = await FingerPrint.create({
       staffId,
       fingerPrint,
-      features,
+      features: fingerprintFeatures,
     });
 
     await Users.findByIdAndUpdate(
@@ -143,6 +199,7 @@ exports.enrollUSer = async (req, res) => {
       message: "User Fingerprint Enrolled successfully!",
     });
   } catch (error) {
+    console.error("Error enrolling fingerprint:", error);
     res.status(500).json({
       success: false,
       message: error.message,
@@ -152,63 +209,72 @@ exports.enrollUSer = async (req, res) => {
 
 exports.matchFingerprint = async (req, res) => {
   try {
-    const { fingerPrint } = req.body;
+    const { fingerPrint, features } = req.body;
 
-    if (!fingerPrint) {
-      return res.status(400).json({ error: "Missing fingerprint data" });
+    if (!fingerPrint && !features) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing Data",
+        message: "No fingerprint data or features provided",
+      });
     }
 
-    console.log("hey");
-
-    // Extract features from the probe fingerprint
-    const probeFeatures = await extractFeatures(fingerPrint);
+    // Use the features from the request or the fingerprint image
+    const fingerprintFeatures = features || fingerPrint;
 
     // Fetch all stored fingerprints from database
-    const storedFingerprints = await FingerPrint.find();
+    const storedFingerprints = await FingerPrint.find().lean();
 
-    let bestMatch = {
-      userId: null,
-      score: 0,
-    };
-
-    const MATCH_THRESHOLD = 0.4; // Minimum score to consider a match
-
-    // Compare with each stored fingerprint
-    for (const stored of storedFingerprints) {
-      const score = compareFeatures(probeFeatures, stored.features);
-
-      if (score > bestMatch.score) {
-        bestMatch = {
-          staffId: stored.staffId,
-          score,
-        };
-      }
+    if (storedFingerprints.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No registered fingerprints found",
+      });
     }
 
-    // Check if best match exceeds threshold
-    if (bestMatch.score >= MATCH_THRESHOLD) {
-      const userFingerprint = await Users.find({ _id: bestMatch.staffId });
+    // Format stored fingerprints for matching
+    const templates = storedFingerprints.map((fp) => ({
+      id: fp.staffId,
+      features: fp.features,
+    }));
 
-      console.log(userFingerprint);
+    // Find the best match
+    const matchResult = await FingerprintUtil.matchFingerprint({
+      features: fingerprintFeatures,
+      templates: templates,
+    });
 
-      res.json({
-        success: true,
-        matched: true,
-        staffId: bestMatch.staffId,
-        score: bestMatch.score,
-      });
-    } else {
-      console.log("No match");
-      res.json({
+    if (!matchResult.matched) {
+      return res.status(200).json({
         success: false,
         matched: false,
-        bestScore: bestMatch.score,
+        message: "No matching fingerprint found",
       });
     }
+
+    // Get user details for the matched fingerprint
+    const userInfo = await Users.findById(matchResult.staffId).select(
+      "-password"
+    );
+
+    if (!userInfo) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found for the matched fingerprint",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      matched: true,
+      score: matchResult.score,
+      user: userInfo,
+    });
   } catch (error) {
-    console.error("Error verifying fingerprint:", error);
-    res.status(500).json({ error: "Server error" });
+    console.error("Error matching fingerprint:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
   }
 };
-
-exports.verifyFingerprint = async (req, res) => {};
