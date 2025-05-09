@@ -19,8 +19,8 @@
   "homepage": "https://github.com/hennryx/camilles-inventory#readme",
   "description": "",
   "dependencies": {
+    "@techstark/opencv-js": "^4.10.0-release.1",
     "bcryptjs": "^3.0.2",
-    "canvas": "^3.1.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
