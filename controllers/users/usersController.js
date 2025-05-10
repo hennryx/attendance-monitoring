@@ -1,6 +1,9 @@
 const FingerPrint = require("../../models/FingerPrint");
 const Users = require("../../models/Users");
-const { extractFeatures, compareFeatures } = require("../../utils/fingerprint");
+const {
+  processFingerprint,
+  compareFingerprints,
+} = require("../../utils/fingerprint");
 
 exports.getAllUsers = async (req, res) => {
   try {
@@ -103,48 +106,42 @@ exports.enrollUSer = async (req, res) => {
       });
     }
 
-    // Extract fingerprint features using OpenCV
-    const features = await extractFeatures(fingerPrint);
+    // Call Python API for fingerprint enrollment
+    const response = await fetch(
+      "http://localhost:5500/api/fingerprint/enroll",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          staffId,
+          fingerPrint,
+        }),
+      }
+    );
 
-    const existingStaff = await FingerPrint.findOne({ staffId });
+    const result = await response.json();
 
-    if (existingStaff) {
-      await FingerPrint.findOneAndUpdate(
-        { staffId },
-        { fingerPrint, features },
-        { new: true }
-      );
-      return res.status(200).json({
-        success: true,
-        message: "User Fingerprint updated successfully!",
+    if (!result.success) {
+      return res.status(400).json({
+        success: false,
+        message: result.message || "User Fingerprint Enrollment failed!",
       });
     }
 
-    const newFingerprint = await FingerPrint.create({
-      staffId,
-      fingerPrint,
-      features,
-    });
-
+    // Update the user record to indicate they have a fingerprint
     await Users.findByIdAndUpdate(
       { _id: staffId },
       { hasFingerPrint: true },
       { new: true }
     );
 
-    if (!newFingerprint) {
-      return res.status(400).json({
-        success: false,
-        message: "User Fingerprint Enrollment failed!",
-      });
-    }
-
     res.status(200).json({
       success: true,
-      message: "User Fingerprint Enrolled successfully!",
+      message: result.message || "User Fingerprint Enrolled successfully!",
     });
   } catch (error) {
-    console.error("Enrollment error:", error);
     res.status(500).json({
       success: false,
       message: error.message,
@@ -152,7 +149,6 @@ exports.enrollUSer = async (req, res) => {
   }
 };
 
-// Update the matchFingerprint function to use the new compareFeatures
 exports.matchFingerprint = async (req, res) => {
   try {
     const { fingerPrint } = req.body;
@@ -161,54 +157,34 @@ exports.matchFingerprint = async (req, res) => {
       return res.status(400).json({ error: "Missing fingerprint data" });
     }
 
-    console.log("Processing fingerprint for matching...");
+    console.log("Calling Python API for fingerprint matching...");
 
-    // Extract features from the probe fingerprint with OpenCV
-    const probeFeatures = await extractFeatures(fingerPrint);
-
-    // Fetch all stored fingerprints from database
-    const storedFingerprints = await FingerPrint.find();
-
-    let bestMatch = {
-      staffId: null,
-      score: 0,
-    };
-
-    // Set a higher threshold for the OpenCV-based matching
-    // ORB descriptor matching tends to be more accurate
-    const MATCH_THRESHOLD = 0.5; // Adjust based on testing
-
-    console.log(
-      `Comparing against ${storedFingerprints.length} stored fingerprints...`
+    // Call Python API for fingerprint matching
+    const response = await fetch(
+      "http://localhost:5500/api/fingerprint/match",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          fingerPrint,
+        }),
+      }
     );
 
-    // Compare with each stored fingerprint
-    for (const stored of storedFingerprints) {
-      // Use the new OpenCV-based comparison
-      const score = await compareFeatures(probeFeatures, stored.features);
+    const result = await response.json();
 
-      console.log(`Score with user ${stored.staffId}: ${score}`);
+    if (result.matched) {
+      // Get user details from your Users collection
+      const user = await Users.findById(result.staffId);
 
-      if (score > bestMatch.score) {
-        bestMatch = {
-          staffId: stored.staffId,
-          score,
-        };
-      }
-    }
-
-    // Check if best match exceeds threshold
-    if (bestMatch.score >= MATCH_THRESHOLD) {
-      const user = await Users.findById(bestMatch.staffId);
-
-      console.log(
-        `Match found: ${bestMatch.staffId} with score ${bestMatch.score}`
-      );
+      console.log(`Match found: ${result.staffId} with score ${result.score}`);
 
       res.json({
         success: true,
         matched: true,
-        staffId: bestMatch.staffId,
+        staffId: result.staffId,
         userData: user
           ? {
               name: user.name,
@@ -216,14 +192,14 @@ exports.matchFingerprint = async (req, res) => {
               // Add other fields you want to return
             }
           : null,
-        score: bestMatch.score,
+        score: result.score,
       });
     } else {
-      console.log(`No match found. Best score: ${bestMatch.score}`);
+      console.log(`No match found. Best score: ${result.bestScore}`);
       res.json({
         success: false,
         matched: false,
-        bestScore: bestMatch.score,
+        bestScore: result.bestScore,
       });
     }
   } catch (error) {

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import FingerPrint from "./fingerPrint";
 import useUsersStore from "../../../services/stores/users/usersStore";
+import Swal from "sweetalert2";
 
 const Home = () => {
   const { matchFingerPrint } = useUsersStore();

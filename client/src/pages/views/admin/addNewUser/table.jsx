@@ -400,9 +400,9 @@ const Table = ({ data, toggleAdd, handleUpdate }) => {
                     className="p-2 bg-green-200 text-green-800 rounded-md hover:bg-green-300"
                     onClick={() => handleFingerprintRegister(_data)}
                   >
-                    {_data?.hasFingerPrint
-                      ? "Update Fingerprint"
-                      : "Register Fingerprint"}
+                    {!_data?.hasFingerPrint
+                      ? "Register Fingerprint"
+                      : "Update Fingerprint"}
                   </button>
                 </td>
               </tr>
