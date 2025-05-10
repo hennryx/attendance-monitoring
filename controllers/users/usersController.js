@@ -176,8 +176,8 @@ exports.matchFingerprint = async (req, res) => {
     const result = await response.json();
 
     if (result.matched) {
-      // Get user details from your Users collection
       const user = await Users.findById(result.staffId);
+      console.log(user.firstname);
 
       console.log(`Match found: ${result.staffId} with score ${result.score}`);
 
@@ -187,7 +187,7 @@ exports.matchFingerprint = async (req, res) => {
         staffId: result.staffId,
         userData: user
           ? {
-              name: user.name,
+              name: user.firstname,
               email: user.email,
               // Add other fields you want to return
             }
@@ -195,6 +195,8 @@ exports.matchFingerprint = async (req, res) => {
         score: result.score,
       });
     } else {
+      const user = await Users.findById(result.staffId);
+      console.log(user?.firstname);
       console.log(`No match found. Best score: ${result.bestScore}`);
       res.json({
         success: false,
