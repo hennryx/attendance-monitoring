@@ -90,9 +90,9 @@ const AddNewUser = () => {
       <div className="container">
         <div className="flex flex-col gap-5 pt-4">
           <div className="">
-            <h2 className="text-xl text-[#4154F1]">Add new staff</h2>
+            <h2 className="text-xl text-[#4154F1]">Add new user</h2>
             <p className="text-sm text-[#989797]">
-              Staffs / {toggleAdd && "Add new staff"}
+              Users / {toggleAdd && "Add new user"}
             </p>
           </div>
           <div>

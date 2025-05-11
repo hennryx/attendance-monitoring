@@ -1,109 +1,71 @@
-// file: FingerprintScanner.jsx
 import { useEffect, useState } from "react";
 import { HiOutlineX } from "react-icons/hi";
 import Swal from "sweetalert2";
 import { useFingerprintScanner } from "../../../../services/utilities/FingerprintScanner";
 
-// Create a modal component for fingerprint scanning
 export const FingerprintModal = ({ isOpen, onClose, onCapture, staffId }) => {
   const {
     fingerprint,
     status,
     readers,
     selectedReader,
+    setSelectedReader,
     scanFingerprint,
     refreshSdk,
     isInitialized,
     stopCapture,
+    isScanning,
   } = useFingerprintScanner();
 
-  const [isScanning, setIsScanning] = useState(false);
   const [scanError, setScanError] = useState(null);
-  const [scanTimeout, setScanTimeout] = useState(null);
 
-  // Effect to check SDK initialization
+  // Effect to check for readers when modal opens
   useEffect(() => {
-    if (isOpen && !window.Fingerprint) {
-      Swal.fire({
-        title: "SDK Not Available",
-        text: "The Fingerprint SDK is not available or scripts haven't loaded. Please refresh the page and try again.",
-        icon: "error",
-      });
+    if (isOpen && isInitialized && readers.length === 0) {
+      setTimeout(() => {
+        Swal.fire({
+          title: "No Reader Found",
+          text: "No fingerprint readers detected. Please connect a reader and try again.",
+          icon: "warning",
+          showCancelButton: true,
+          confirmButtonText: "Refresh Readers",
+          cancelButtonText: "Cancel",
+        }).then((result) => {
+          if (result.isConfirmed) {
+            refreshSdk();
+          }
+        });
+      }, 1000);
     }
-  }, [isOpen]);
-
-  useEffect(() => {
-    let timeoutId;
-
-    if (isOpen && isInitialized) {
-      timeoutId = setTimeout(() => {
-        if (readers.length === 0) {
-          Swal.fire({
-            title: "No Reader Found",
-            text: "No fingerprint readers detected. Please connect a reader and try again.",
-            icon: "warning",
-            showCancelButton: true,
-            confirmButtonText: "Refresh Readers",
-            cancelButtonText: "Cancel",
-          }).then((result) => {
-            if (result.isConfirmed) {
-              refreshSdk();
-            }
-          });
-        }
-      }, 5000);
-    }
-
-    return () => {
-      if (timeoutId) clearTimeout(timeoutId);
-    };
   }, [isOpen, isInitialized, readers.length, refreshSdk]);
 
   const handleScan = async () => {
     if (isScanning) return;
 
-    if (!selectedReader) {
+    if (readers.length === 0) {
       Swal.fire({
-        title: "No Reader Selected",
+        title: "No Reader Available",
         text: "No fingerprint reader selected. Please connect a reader and try again.",
         icon: "error",
       });
       return;
     }
 
-    setIsScanning(true);
     setScanError(null);
 
     try {
       console.log("Starting fingerprint scan...");
 
-      // Create a timeout to force stop scanning if it takes too long
-      const timeoutId = setTimeout(() => {
-        if (isScanning) {
-          stopCapture();
-          setScanError("Scan failed to complete in time. Please try again.");
-          setIsScanning(false);
-        }
-      }, 35000);
+      // The actual scanning is now handled by the backend
+      const fingerprintFeatures = await scanFingerprint(30000);
 
-      setScanTimeout(timeoutId);
+      console.log("Scan completed successfully");
 
-      const fingerprintData = await scanFingerprint(30000);
-      clearTimeout(timeoutId);
-
-      console.log(
-        "Scan completed successfully:",
-        fingerprintData ? "Data received" : "No data"
-      );
-
-      if (fingerprintData) {
-        const cleanedFingerprintData = fingerprintData.includes("base64")
-          ? fingerprintData.split(",")[1]
-          : fingerprintData;
-
+      if (fingerprintFeatures) {
         onCapture({
           staffId,
-          fingerPrint: cleanedFingerprintData,
+          fingerPrint: fingerprint,
+          features: fingerprintFeatures,
         });
 
         Swal.fire({
@@ -127,11 +89,12 @@ export const FingerprintModal = ({ isOpen, onClose, onCapture, staffId }) => {
         text: error.message,
         icon: "error",
       });
-    } finally {
-      clearTimeout(scanTimeout);
-      setScanTimeout(null);
-      setIsScanning(false);
     }
+  };
+
+  // Handle reader selection change
+  const handleReaderChange = (e) => {
+    setSelectedReader(e.target.value);
   };
 
   if (!isOpen) return null;
@@ -156,9 +119,23 @@ export const FingerprintModal = ({ isOpen, onClose, onCapture, staffId }) => {
             <p className="text-gray-600 text-sm">Staff ID: {staffId}</p>
 
             {readers.length > 0 && (
-              <p className="text-green-600 text-sm">
-                Using fingerprint reader: {selectedReader}
-              </p>
+              <div className="form-control">
+                <label className="label">
+                  <span className="label-text">Select Reader</span>
+                </label>
+                <select
+                  className="select select-bordered w-full"
+                  value={selectedReader}
+                  onChange={handleReaderChange}
+                  disabled={isScanning}
+                >
+                  {readers.map((reader, index) => (
+                    <option key={index} value={reader.id}>
+                      {reader.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
             )}
 
             {readers.length === 0 && (
