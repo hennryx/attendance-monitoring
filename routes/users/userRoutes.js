@@ -7,21 +7,15 @@ const {
   deleteUser,
   enrollUSer,
   matchFingerprint,
-  getDeviceList,
-  captureFingerprint,
+  verifyFingerprint,
 } = require("../../controllers/users/usersController");
 
-// User management routes
+// Get all users - admin only
 router.get("/getAll", protect, authorize("ADMIN"), getAllUsers);
 router.delete("/delete", protect, deleteUser);
 router.put("/update", protect, updateUser);
-
-// Fingerprint device routes
-router.get("/fingerprint/devices", getDeviceList);
-router.post("/fingerprint/capture", captureFingerprint);
-
-// Fingerprint registration and matching routes
 router.post("/enroll", protect, enrollUSer);
 router.post("/match", matchFingerprint);
+router.post("/verify", verifyFingerprint);
 
 module.exports = router;
