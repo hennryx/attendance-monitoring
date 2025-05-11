@@ -1,7 +1,8 @@
 import AddNewUser from "./addNewUser";
 import DashBoard from "./dashboard";
+import PayrollManagement from "./payroll";
 
-import { BsGrid1X2, BsPersonAdd } from "react-icons/bs";
+import { BsGrid1X2, BsPersonAdd, BsCashStack, BsClockHistory, BsGear } from "react-icons/bs";
 
 const access = [
   {
@@ -16,6 +17,13 @@ const access = [
     path: "/add-new-user",
     icon: BsPersonAdd,
     element: AddNewUser,
+  },
+
+  {
+    name: "Payroll",
+    path: "/payroll",
+    icon: BsCashStack,
+    element: PayrollManagement,
   },
 ]
 

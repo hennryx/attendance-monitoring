@@ -215,3 +215,21 @@ exports.matchFingerprint = async (req, res) => {
 };
 
 exports.verifyFingerprint = async (req, res) => {};
+
+exports.getDepartments = async (req, res) => {
+  try {
+    const deps = await Users.find()
+    const uniqueDepartments = [...new Set(deps.map(item => item.department))];
+
+    res.status(200).json({
+      data: uniqueDepartments,
+      success: true
+    })
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: "Server error",
+      message: error.message,
+    });
+  }
+};

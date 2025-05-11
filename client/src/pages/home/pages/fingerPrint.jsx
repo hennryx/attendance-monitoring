@@ -1,8 +1,12 @@
 import React, { useEffect, useState } from "react";
 import { useFingerprintScanner } from "../../../services/utilities/FingerprintScanner";
+import useUsersStore from "../../../services/stores/users/usersStore";
+import { useNavigate } from "react-router-dom";
 import Swal from "sweetalert2";
 
-const FingerPrint = ({ isOpen, onClose, onCapture }) => {
+const Fingerprint = () => {
+  const navigate = useNavigate();
+  const { matchFingerPrint, message, isSuccess } = useUsersStore();
   const {
     fingerprint,
     status,
@@ -19,19 +23,21 @@ const FingerPrint = ({ isOpen, onClose, onCapture }) => {
   const [scanTimeout, setScanTimeout] = useState(null);
 
   useEffect(() => {
-    if (isOpen && !window.Fingerprint) {
+    if (!window.Fingerprint) {
       Swal.fire({
         title: "SDK Not Available",
         text: "The Fingerprint SDK is not available or scripts haven't loaded. Please refresh the page and try again.",
         icon: "error",
+      }).then(() => {
+        navigate('/');
       });
     }
-  }, [isOpen]);
+  }, [navigate]);
 
   useEffect(() => {
     let timeoutId;
 
-    if (isOpen && isInitialized) {
+    if (isInitialized) {
       timeoutId = setTimeout(() => {
         if (readers.length === 0) {
           Swal.fire({
@@ -40,10 +46,12 @@ const FingerPrint = ({ isOpen, onClose, onCapture }) => {
             icon: "warning",
             showCancelButton: true,
             confirmButtonText: "Refresh Readers",
-            cancelButtonText: "Cancel",
+            cancelButtonText: "Go Back",
           }).then((result) => {
             if (result.isConfirmed) {
               refreshSdk();
+            } else {
+              navigate('/');
             }
           });
         }
@@ -53,7 +61,91 @@ const FingerPrint = ({ isOpen, onClose, onCapture }) => {
     return () => {
       if (timeoutId) clearTimeout(timeoutId);
     };
-  }, [isOpen, isInitialized, readers.length, refreshSdk]);
+  }, [isInitialized, readers.length, refreshSdk, navigate]);
+
+  useEffect(() => {
+    if (isSuccess && message) {
+      Swal.fire({
+        title: "Success!",
+        text: message,
+        icon: "success",
+        timer: 2000,
+        showConfirmButton: false,
+      });
+    }
+  }, [isSuccess, message]);
+
+  useEffect(() => {
+    if (!window.fingerprintScriptLoading) {
+      window.fingerprintScriptLoading = true;
+
+      if (window.Fingerprint && window.Fingerprint.WebApi) {
+        console.log("Fingerprint SDK already loaded");
+        window.fingerprintScriptLoading = false;
+        return;
+      }
+
+      const loadScript = (src) => {
+        return new Promise((resolve, reject) => {
+          const existingScript = document.querySelector(`script[src="${src}"]`);
+          if (existingScript) {
+            console.log(`Script already loaded: ${src}`);
+            resolve();
+            return;
+          }
+
+          const script = document.createElement("script");
+          script.src = src;
+          script.async = true;
+
+          script.onload = () => {
+            console.log(`Script loaded: ${src}`);
+            resolve();
+          };
+
+          script.onerror = (error) => {
+            console.error(`Error loading script: ${src}`, error);
+            reject(new Error(`Failed to load ${src}`));
+          };
+
+          document.head.appendChild(script);
+        });
+      };
+
+      const loadSDK = async () => {
+        try {
+          console.log("Loading Fingerprint SDK scripts...");
+          await loadScript("/scripts/es6-shim.js");
+          await loadScript("/scripts/websdk.client.bundle.min.js");
+          await loadScript("/scripts/fingerprint.sdk.min.js");
+
+          await new Promise((resolve) => setTimeout(resolve, 500));
+
+          if (window.Fingerprint && window.Fingerprint.WebApi) {
+            console.log("Fingerprint SDK loaded successfully");
+          } else {
+            console.error("SDK objects not found after loading scripts");
+            Swal.fire({
+              title: "SDK Not Available",
+              text: "The Fingerprint SDK could not be initialized. Please check your network connection and try again.",
+              icon: "error",
+            });
+          }
+        } catch (error) {
+          console.error("Failed to load Fingerprint SDK:", error);
+          Swal.fire({
+            title: "Failed to Load SDK",
+            text: "Could not load the fingerprint SDK scripts. Please check your network connection and try again.",
+            icon: "error",
+          });
+        } finally {
+          window.fingerprintScriptLoading = false;
+        }
+      };
+
+      loadSDK();
+    }
+  }, []);
 
   const handleScan = async () => {
     if (isScanning) return;
@@ -97,7 +189,7 @@ const FingerPrint = ({ isOpen, onClose, onCapture }) => {
           ? fingerprintData.split(",")[1]
           : fingerprintData;
 
-        onCapture({
+        await matchFingerPrint({
           fingerPrint: cleanedFingerprintData,
         });
 
@@ -125,57 +217,59 @@ const FingerPrint = ({ isOpen, onClose, onCapture }) => {
     }
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div>
-      FingerPrint
-      {readers.length === 0 && (
-        <p className="text-red-600 text-sm">
-          No fingerprint reader detected. Please connect a reader.
-        </p>
-      )}
-      <div className="border rounded flex items-center justify-center h-40">
-        {fingerprint ? (
-          <img src={fingerprint} alt="Fingerprint" className="max-h-full" />
-        ) : scanError ? (
-          <p className="text-center text-red-500">{scanError}</p>
-        ) : (
-          <p className="text-center text-gray-500">{status}</p>
-        )}
-      </div>
-      <div className="flex flex-col gap-2 pt-2 w-full">
-        <button
-          type="button"
-          className="btn w-full justify-center rounded-md bg-blue-300 px-3 py-1.5 text-sm font-semibold leading-6 text-blue-800 shadow-sm hover:bg-blue-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
-          onClick={handleScan}
-          disabled={isScanning || readers.length === 0}
-        >
-          {isScanning ? "Scanning..." : "Scan Fingerprint"}
-        </button>
+    <div className="container max-w-md mx-auto pt-10 pb-8 px-4">
+      <div className="bg-white rounded-lg shadow-md p-6">
+        <h1 className="text-2xl font-bold text-center mb-6">Fingerprint Attendance</h1>
+        
+        <div className="mb-4">
+          {readers.length === 0 && (
+            <div className="bg-red-100 text-red-800 p-3 rounded-md mb-4">
+              No fingerprint reader detected. Please connect a reader.
+            </div>
+          )}
 
-        <button
-          type="button"
-          className="btn w-full justify-center rounded-md bg-gray-300 px-3 py-1.5 text-sm font-semibold leading-6 text-gray-800 shadow-sm hover:bg-gray-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-400"
-          onClick={onClose}
-          disabled={isScanning}
-        >
-          Cancel
-        </button>
-
-        {readers.length === 0 && (
+          {readers.length > 0 && (
+            <div className="bg-green-100 text-green-800 p-3 rounded-md mb-4">
+              Using fingerprint reader: {selectedReader}
+            </div>
+          )}
+          
+          <div className="border-2 border-gray-300 rounded-md flex items-center justify-center h-48 mb-6">
+            {fingerprint ? (
+              <img src={fingerprint} alt="Fingerprint" className="max-h-full" />
+            ) : scanError ? (
+              <p className="text-center text-red-500">{scanError}</p>
+            ) : (
+              <p className="text-center text-gray-500">{status}</p>
+            )}
+          </div>
+        </div>
+        
+        <div className="flex flex-col gap-3">
           <button
             type="button"
-            className="btn w-full justify-center rounded-md bg-green-300 px-3 py-1.5 text-sm font-semibold leading-6 text-green-800 shadow-sm hover:bg-green-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green-600"
-            onClick={refreshSdk}
-            disabled={isScanning}
+            className="w-full justify-center rounded-md bg-blue-500 px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-blue-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:bg-blue-300"
+            onClick={handleScan}
+            disabled={isScanning || readers.length === 0}
           >
-            Refresh Readers
+            {isScanning ? "Scanning..." : "Scan Fingerprint"}
           </button>
-        )}
+
+          {readers.length === 0 && (
+            <button
+              type="button"
+              className="w-full justify-center rounded-md bg-green-500 px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-green-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green-600"
+              onClick={refreshSdk}
+              disabled={isScanning}
+            >
+              Refresh Readers
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
 };
 
-export default FingerPrint;
+export default Fingerprint;

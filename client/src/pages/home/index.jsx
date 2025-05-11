@@ -2,11 +2,11 @@ import React, { useState } from "react";
 import { Route, Routes as Switch } from "react-router-dom";
 
 import Login from "./login";
-
 import Home from "./pages/home";
 import Header from "./header";
 import Footer from "../../components/footer";
 import AboutUs from "../home/pages/about-us";
+import Fingerprint from "./pages/fingerPrint";
 import NotFound from "../notFound";
 
 const HeroPage = () => {
@@ -32,8 +32,9 @@ const HeroPage = () => {
         <div className="my-16 w-full h-full">
           <Switch>
             <Route path="/" element={<Home />} />
-            <Route path="/about-us" Component={AboutUs}></Route>
-            <Route path="/*" Component={NotFound}></Route>
+            <Route path="/about-us" Component={AboutUs} />
+            <Route path="/fingerprint" Component={Fingerprint} />
+            <Route path="/*" Component={NotFound} />
           </Switch>
         </div>
 

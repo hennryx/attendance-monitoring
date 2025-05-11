@@ -7,7 +7,8 @@ const {
   deleteUser,
   enrollUSer,
   matchFingerprint,
-  verifyFingerprint,
+  verifyFingerprint,    
+  getDepartments
 } = require("../../controllers/users/usersController");
 
 // Get all users - admin only
@@ -17,5 +18,6 @@ router.put("/update", protect, updateUser);
 router.post("/enroll", protect, enrollUSer);
 router.post("/match", matchFingerprint);
 router.post("/verify", verifyFingerprint);
+router.get("/departments", protect, getDepartments)
 
 module.exports = router;

@@ -1,4 +1,4 @@
-// server/models/User.js
+// models/Users.js (Updated)
 const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
 
@@ -61,15 +61,91 @@ const UserSchema = new mongoose.Schema({
     type: Boolean,
     default: false,
   },
+  
+  // New fields for payroll system
+  employeeId: {
+    type: String,
+    unique: true,
+    sparse: true, // Allows null values
+  },
+  
+  dateHired: {
+    type: Date,
+  },
+  
+  status: {
+    type: String,
+    enum: ["active", "inactive", "on-leave", "terminated"],
+    default: "active",
+  },
+  
+  baseSalary: {
+    type: Number,
+    default: 0,
+  },
+  
+  salaryType: {
+    type: String,
+    enum: ["hourly", "daily", "monthly"],
+    default: "monthly",
+  },
+  
+  bankDetails: {
+    bankName: String,
+    accountNumber: String,
+    accountName: String,
+  },
+  
+  taxId: {
+    type: String,
+  },
+  
+  emergencyContact: {
+    name: String,
+    relationship: String,
+    phone: String,
+  },
+  
+  assignedShift: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Shift",
+  },
+  
+  phoneNumber: {
+    type: String,
+  },
+  
+  address: {
+    street: String,
+    city: String,
+    state: String,
+    postalCode: String,
+    country: String,
+  },
 
   createdAt: {
     type: Date,
     default: Date.now,
   },
+  
+  updatedAt: {
+    type: Date,
+    default: Date.now,
+  },
+});
+
+// Virtual for full name
+UserSchema.virtual("fullName").get(function() {
+  if (this.middlename) {
+    return `${this.firstname} ${this.middlename} ${this.lastname}`;
+  }
+  return `${this.firstname} ${this.lastname}`;
 });
 
 // Encrypt password using bcrypt
 UserSchema.pre("save", async function (next) {
+  this.updatedAt = new Date();
+  
   if (!this.isModified("password")) {
     next();
   }
