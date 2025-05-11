@@ -123,6 +123,11 @@ const UserSchema = new mongoose.Schema({
     country: String,
   },
 
+  profileImage: {
+    type: String,
+    default: null
+},
+
   createdAt: {
     type: Date,
     default: Date.now,

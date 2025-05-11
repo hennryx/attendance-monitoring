@@ -82,11 +82,11 @@ const Login = ({ isOpen, handleClose, handleToggle }) => {
         <>
             {isOpen && (
                 <div className="modal modal-open">
-                    <div className="modal-box bg-white text-black">
+                    <div className="modal-box bg-gray-700 text-white ">
                         <div className="flex flex-row justify-between">
                             <h3 className="font-bold text-lg">Login</h3>
                             <button
-                                className="btn btn-ghost bg-white text-black"
+                                className="btn btn-ghost bg-[#FDBE02] hover:bg-[#E6AB00] text-black"
                                 type="button"
                                 onClick={handleClose}
                             >
@@ -100,7 +100,7 @@ const Login = ({ isOpen, handleClose, handleToggle }) => {
                                     <svg
                                         xmlns="http://www.w3.org/2000/svg"
                                         viewBox="0 0 16 16"
-                                        fill="currentColor"
+                                        fill="black"
                                         className="h-4 w-4 opacity-70">
                                         <path
                                             d="M2.5 3A1.5 1.5 0 0 0 1 4.5v.793c.026.009.051.02.076.032L7.674 8.51c.206.1.446.1.652 0l6.598-3.185A.755.755 0 0 1 15 5.293V4.5A1.5 1.5 0 0 0 13.5 3h-11Z" />
@@ -110,7 +110,7 @@ const Login = ({ isOpen, handleClose, handleToggle }) => {
 
                                     <input
                                         type="email"
-                                        className="grow"
+                                        className="grow text-black"
                                         placeholder="Juan@mail.com"
                                         name='email'
                                         value={userData.email}
@@ -123,7 +123,7 @@ const Login = ({ isOpen, handleClose, handleToggle }) => {
                                     <svg
                                         xmlns="http://www.w3.org/2000/svg"
                                         viewBox="0 0 16 16"
-                                        fill="currentColor"
+                                        fill="black"
                                         className="h-4 w-4 opacity-70">
                                         <path
                                             fillRule="evenodd"
@@ -132,7 +132,7 @@ const Login = ({ isOpen, handleClose, handleToggle }) => {
                                     </svg>
                                     <input
                                         type={viewPassword ? "text" : "password"}
-                                        className="grow"
+                                        className="grow text-black"
                                         placeholder={viewPassword ? "Password" : "******"}
                                         name='password'
                                         value={userData.password}
@@ -142,7 +142,7 @@ const Login = ({ isOpen, handleClose, handleToggle }) => {
                                     {viewPassword ? (
                                         <button
                                             type="button"
-                                            className='h-full'
+                                            className='h-full text-black'
                                             onClick={() => setViewPassword(!viewPassword)}
                                         >
                                             <FaRegEye />
@@ -150,7 +150,7 @@ const Login = ({ isOpen, handleClose, handleToggle }) => {
                                     ) : (
                                         <button
                                             type="button"
-                                            className='h-full'
+                                            className='h-full text-black'
                                             onClick={() => setViewPassword(!viewPassword)}
                                         >
                                             <FaRegEyeSlash />
@@ -162,7 +162,7 @@ const Login = ({ isOpen, handleClose, handleToggle }) => {
                                 )}
                                 <div className="flex flex-col gap-2 pt-2 w-full">
                                     <button
-                                        className="btn w-max border-0 justify-center rounded-md bg-blue-300 px-3 py-1.5 text-sm font-semibold leading-6 text-blue-800 shadow-sm hover:bg-blue-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-650"
+                                        className="btn border-0 justify-center rounded-full bg-[#FDBE02] px-3 py-1.5 text-sm font-semibold leading-6 text-black shadow-sm hover:bg-[#E6AB00] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-650"
                                         onClick={(e) => handleSubmit(e)}
                                     >
                                         Login

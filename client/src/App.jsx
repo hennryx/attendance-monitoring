@@ -18,7 +18,8 @@ function App() {
 
     const heroPaths = [
         '/',
-        '/about-us'
+        '/about-us',
+        '/services',
     ];
 
     const urlPath = location.pathname;

@@ -1,12 +1,8 @@
-import React from "react";
-import { useNavigate } from "react-router-dom";
-import { IoArrowForwardCircle } from "react-icons/io5";
+import React from 'react'
 
-const Home = () => {
-    const navigate = useNavigate();
-
-    return (
-        <div className="relative isolate bg-[#1b1b1b] px-6 pt-14 lg:px-16 h-screen overflow-hidden">
+const Services = () => {
+  return (
+    <div className="relative isolate bg-[#1b1b1b] min-h-lvh px-6 pt-14 lg:px-8 overflow-hidden">
             <div
                 aria-hidden="true"
                 className="absolute inset-x-0 -top-40 -z-10 transform-gpu overflow-hidden blur-3xl sm:-top-80"
@@ -20,27 +16,11 @@ const Home = () => {
                 />
             </div>
 
-            <div className="max-w-4xl pt-28 sm:pt-36 lg:pt-40 relative z-10">
-                <h1 className="text-4xl sm:text-6xl font-bold text-white leading-tight text-shadow-base-300">
-                    MANAGE EMPLOYEE ATTENDANCE WITH EASE USING OUR
-                    <span className="text-[#FDBE02]"> ATTENDANCE MONITORING SYSTEM</span>
+            <div className="text-start py-12 sm:py-14 lg:py-17 flex flex-col gap-4">
+                <h1 className="text-2xl font-bold mb-6 text-center">
+                    Sorry, this page is under development
                 </h1>
-                <p className="mt-6 w-full sm:w-2/3 text-base sm:text-lg text-white font-medium leading-relaxed">
-                    Out System is designed to be user-freindly and intuitive, so you can get started right away without any special training or technical knowledge
-                </p>
-                <div className="mt-8 flex items-center gap-4">
-                    <button
-                        onClick={() => navigate('/fingerprint')}
-                        className="px-5 py-2 border-2 border-[#FDBE02] relative rounded-full shadow flex"
-                    >
-                        <span className="mr-8 text-white">Get attendance</span>
-                        <span className="absolute top-0 right-0 bottom-0">
-                            <IoArrowForwardCircle size={40} className="text-[#FDBE02]"/>
-                        </span>
-                    </button>
-                </div>
             </div>
-
 
             <div
                 aria-hidden="true"
@@ -55,7 +35,7 @@ const Home = () => {
                 />
             </div>
         </div>
-    );
-};
+  )
+}
 
-export default Home;
+export default Services

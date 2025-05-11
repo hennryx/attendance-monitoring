@@ -11,10 +11,23 @@ const Footer = ({ className=""}) => {
             <div className={`flex flex-col sm:flex-row w-full p-8 gap-4 sm:gap-8 ${className} ${className.includes('bg-') ? className : 'bg-white'}`}>
                 <div className="flex-1 flex flex-col gap-2">
                     <img alt="Logo" src={Logo} className="h-14 w-16" />
-                    <p className='text-base'>A place for good drinks. 
-                        we offer refreshing drinks </p>
+                    <p className='text-base'>You'll never know </p>
                     <p className='text-base'>&copy; 2025 Night Owl. All rights reserved. </p>
                 </div>
+
+                <div className="flex-1 flex flex-col gap-2">
+                    <h1 className='font-bold text-lg'>Company</h1>
+                    <div className='flex flex-row gap-2 items-center'>
+                        <p className='text-base'>Home</p>
+                    </div>
+                    <div className='flex flex-row gap-2 items-center'>
+                        <p className='text-base'>About us</p>
+                    </div>
+                    <div className='flex flex-row gap-2 items-center'>
+                        <p className='text-base'>Services</p>
+                    </div>
+                </div>
+
                 <div className="flex-1 flex flex-col gap-2">
                     <h1 className='font-bold text-lg'>Contact us</h1>
                     <div className='flex flex-row gap-2 items-center'>
@@ -30,6 +43,7 @@ const Footer = ({ className=""}) => {
                         <p className='text-base'>Email: <a href="mailto:info@sample.com">owl@gmail.com</a></p>
                     </div>
                 </div>
+
                 <div className="flex-1 flex flex-col gap-2">
                     <h1 className='font-bold text-lg'>Socials</h1>
                     <div className='flex flex-row gap-2 items-center'>
