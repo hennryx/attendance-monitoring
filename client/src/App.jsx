@@ -16,7 +16,7 @@ function App() {
     }
   }, [auth?._id, token]);
 
-  const heroPaths = ["/", "/about-us", "/fingerprint", "/services"];
+  const heroPaths = ["/", "/about-us", "/attendance", "/services"];
 
   const urlPath = location.pathname;
 

@@ -6,9 +6,9 @@ import Home from "./pages/home";
 import Header from "./header";
 import Footer from "../../components/footer";
 import AboutUs from "../home/pages/about-us";
-import Fingerprint from "./pages/fingerPrint";
 import NotFound from "../notFound";
 import Services from "./pages/services";
+import FingerprintAttendance from "./pages/fingerPrint";
 
 const HeroPage = () => {
   const [toggle, setToggle] = useState({
@@ -35,7 +35,7 @@ const HeroPage = () => {
             <Route path="/" element={<Home />} />
             <Route path="/about-us" Component={AboutUs} />
             <Route path="/services" Component={Services} />
-            <Route path="/fingerprint" Component={Fingerprint} />
+            <Route path="/attendance" Component={FingerprintAttendance} />
             <Route path="/*" Component={NotFound} />
           </Switch>
         </div>

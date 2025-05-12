@@ -17,11 +17,12 @@ const access = [
     icon: BsCashStack,
     element: PayrollView,
   },
-  // {
-  //   path: "/payslip/:id",
-  //   element: PaySlip,
-  //   hidden: true,
-  // }
-]
+  {
+    name: "",
+    path: "/payslip/:id",
+    element: PaySlip,
+    hidden: true,
+  },
+];
 
 export default access;

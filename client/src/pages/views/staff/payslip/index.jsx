@@ -1,11 +1,11 @@
-import React, { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { FaDownload, FaArrowLeft } from 'react-icons/fa';
-import useAuthStore from '../../../../services/stores/authStore';
-import axiosTools from '../../../../services/utilities/axiosUtils';
-import { ENDPOINT } from '../../../../services/utilities';
-import Swal from 'sweetalert2';
-import { format } from 'date-fns';
+import React, { useEffect, useState } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import { FaDownload, FaArrowLeft } from "react-icons/fa";
+import useAuthStore from "../../../../services/stores/authStore";
+import axiosTools from "../../../../services/utilities/axiosUtils";
+import { ENDPOINT } from "../../../../services/utilities";
+import Swal from "sweetalert2";
+import { format } from "date-fns";
 
 const PaySlip = () => {
   const { id } = useParams();
@@ -23,39 +23,39 @@ const PaySlip = () => {
       try {
         const response = await axiosTools.getData(
           `${ENDPOINT}/payroll/${id}`,
-          '',
+          "",
           token
         );
 
         if (response.success) {
           setPayroll(response.data);
           setStaff(response.data.staffId);
-          
+
           // Verify the user is authorized to view this payslip
-          if (auth.role !== 'ADMIN' && auth._id !== response.data.staffId._id) {
+          if (auth.role !== "ADMIN" && auth._id !== response.data.staffId._id) {
             Swal.fire({
-              icon: 'error',
-              title: 'Unauthorized',
-              text: 'You are not authorized to view this pay slip',
+              icon: "error",
+              title: "Unauthorized",
+              text: "You are not authorized to view this pay slip",
             });
-            navigate('/dashboard');
+            navigate("/dashboard");
           }
         } else {
           Swal.fire({
-            icon: 'error',
-            title: 'Not Found',
-            text: 'The requested pay slip could not be found',
+            icon: "error",
+            title: "Not Found",
+            text: "The requested pay slip could not be found",
           });
-          navigate('/dashboard');
+          navigate("/dashboard");
         }
       } catch (error) {
-        console.error('Error fetching payroll data:', error);
+        console.error("Error fetching payroll data:", error);
         Swal.fire({
-          icon: 'error',
-          title: 'Failed to load pay slip',
-          text: error.message || 'An error occurred while loading the pay slip',
+          icon: "error",
+          title: "Failed to load pay slip",
+          text: error.message || "An error occurred while loading the pay slip",
         });
-        navigate('/dashboard');
+        navigate("/dashboard");
       } finally {
         setIsLoading(false);
       }
@@ -66,15 +66,15 @@ const PaySlip = () => {
 
   const handleDownload = () => {
     if (!id) return;
-    
+
     // Open payslip in new tab for downloading
-    window.open(`${ENDPOINT}/payroll/payslip/${id}`, '_blank');
+    window.open(`${ENDPOINT}/payroll/payslip/${id}`, "_blank");
   };
 
   const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
+    return new Intl.NumberFormat("en-PH", {
+      style: "currency",
+      currency: "PHP",
     }).format(amount);
   };
 
@@ -89,11 +89,13 @@ const PaySlip = () => {
   if (!payroll || !staff) {
     return (
       <div className="container mx-auto p-4">
-        <div className="text-xl text-center text-gray-600">Pay slip not found</div>
+        <div className="text-xl text-center text-gray-600">
+          Pay slip not found
+        </div>
         <div className="flex justify-center mt-4">
           <button
             className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded flex items-center gap-2"
-            onClick={() => navigate('/dashboard')}
+            onClick={() => navigate("/dashboard")}
           >
             <FaArrowLeft /> Back to Dashboard
           </button>
@@ -130,15 +132,19 @@ const PaySlip = () => {
         <div className="p-6">
           {/* Employee Information */}
           <div className="mb-6">
-            <h2 className="text-lg font-semibold border-b pb-2 mb-3">Employee Information</h2>
+            <h2 className="text-lg font-semibold border-b pb-2 mb-3">
+              Employee Information
+            </h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <p className="text-gray-600 text-sm">Name:</p>
-                <p className="font-medium">{staff.firstname} {staff.middlename} {staff.lastname}</p>
+                <p className="font-medium">
+                  {staff.firstname} {staff.middlename} {staff.lastname}
+                </p>
               </div>
               <div>
                 <p className="text-gray-600 text-sm">Employee ID:</p>
-                <p className="font-medium">{staff.employeeId || 'N/A'}</p>
+                <p className="font-medium">{staff.employeeId || "N/A"}</p>
               </div>
               <div>
                 <p className="text-gray-600 text-sm">Department:</p>
@@ -153,30 +159,42 @@ const PaySlip = () => {
 
           {/* Pay Period */}
           <div className="mb-6">
-            <h2 className="text-lg font-semibold border-b pb-2 mb-3">Pay Period</h2>
+            <h2 className="text-lg font-semibold border-b pb-2 mb-3">
+              Pay Period
+            </h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <p className="text-gray-600 text-sm">From:</p>
-                <p className="font-medium">{format(new Date(payroll.periodStart), 'MMMM d, yyyy')}</p>
+                <p className="font-medium">
+                  {format(new Date(payroll.periodStart), "MMMM d, yyyy")}
+                </p>
               </div>
               <div>
                 <p className="text-gray-600 text-sm">To:</p>
-                <p className="font-medium">{format(new Date(payroll.periodEnd), 'MMMM d, yyyy')}</p>
+                <p className="font-medium">
+                  {format(new Date(payroll.periodEnd), "MMMM d, yyyy")}
+                </p>
               </div>
             </div>
           </div>
 
           {/* Earnings */}
           <div className="mb-6">
-            <h2 className="text-lg font-semibold border-b pb-2 mb-3">Earnings</h2>
+            <h2 className="text-lg font-semibold border-b pb-2 mb-3">
+              Earnings
+            </h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <p className="text-gray-600 text-sm">Base Salary:</p>
-                <p className="font-medium">{formatCurrency(payroll.baseSalary)}</p>
+                <p className="font-medium">
+                  {formatCurrency(payroll.baseSalary)}
+                </p>
               </div>
               <div>
                 <p className="text-gray-600 text-sm">Overtime Pay:</p>
-                <p className="font-medium">{formatCurrency(payroll.overtimePay)}</p>
+                <p className="font-medium">
+                  {formatCurrency(payroll.overtimePay)}
+                </p>
               </div>
             </div>
 
@@ -194,7 +212,9 @@ const PaySlip = () => {
                 </div>
                 <div className="flex justify-between mt-2 pt-2 border-t">
                   <span className="font-medium">Total Allowances:</span>
-                  <span className="font-medium">{formatCurrency(payroll.totalAllowances)}</span>
+                  <span className="font-medium">
+                    {formatCurrency(payroll.totalAllowances)}
+                  </span>
                 </div>
               </div>
             )}
@@ -207,24 +227,32 @@ const PaySlip = () => {
 
           {/* Deductions */}
           <div className="mb-6">
-            <h2 className="text-lg font-semibold border-b pb-2 mb-3">Deductions</h2>
-            
+            <h2 className="text-lg font-semibold border-b pb-2 mb-3">
+              Deductions
+            </h2>
+
             {/* Standard Deductions */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <p className="text-gray-600 text-sm">Late Deductions:</p>
-                <p className="font-medium">{formatCurrency(payroll.lateDeductions)}</p>
+                <p className="font-medium">
+                  {formatCurrency(payroll.lateDeductions)}
+                </p>
               </div>
               <div>
                 <p className="text-gray-600 text-sm">Absence Deductions:</p>
-                <p className="font-medium">{formatCurrency(payroll.absenceDeductions)}</p>
+                <p className="font-medium">
+                  {formatCurrency(payroll.absenceDeductions)}
+                </p>
               </div>
             </div>
 
             {/* Additional Deductions */}
             {payroll.deductions && payroll.deductions.length > 0 && (
               <div className="mt-4">
-                <p className="text-gray-600 text-sm mb-2">Additional Deductions:</p>
+                <p className="text-gray-600 text-sm mb-2">
+                  Additional Deductions:
+                </p>
                 <div className="pl-4">
                   {payroll.deductions.map((deduction, index) => (
                     <div key={index} className="flex justify-between mb-1">
@@ -238,7 +266,9 @@ const PaySlip = () => {
 
             <div className="flex justify-between mt-4 pt-2 border-t">
               <span className="font-medium">Total Deductions:</span>
-              <span className="font-medium">{formatCurrency(payroll.totalDeductions)}</span>
+              <span className="font-medium">
+                {formatCurrency(payroll.totalDeductions)}
+              </span>
             </div>
           </div>
 
@@ -246,47 +276,68 @@ const PaySlip = () => {
           <div className="bg-gray-50 p-4 rounded-lg">
             <div className="flex justify-between items-center">
               <span className="text-xl font-bold">Net Pay:</span>
-              <span className="text-xl font-bold">{formatCurrency(payroll.netPay)}</span>
+              <span className="text-xl font-bold">
+                {formatCurrency(payroll.netPay)}
+              </span>
             </div>
           </div>
 
           {/* Attendance Summary */}
           <div className="mt-6">
-            <h2 className="text-lg font-semibold border-b pb-2 mb-3">Attendance Summary</h2>
+            <h2 className="text-lg font-semibold border-b pb-2 mb-3">
+              Attendance Summary
+            </h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <p className="text-gray-600 text-sm">Days Worked:</p>
-                <p className="font-medium">{payroll.daysWorked} / {payroll.totalWorkingDays}</p>
+                <p className="font-medium">
+                  {payroll.daysWorked} / {payroll.totalWorkingDays}
+                </p>
               </div>
               <div>
                 <p className="text-gray-600 text-sm">Total Hours:</p>
-                <p className="font-medium">{payroll.totalHoursWorked.toFixed(1)} hrs</p>
+                <p className="font-medium">
+                  {payroll.totalHoursWorked.toFixed(1)} hrs
+                </p>
               </div>
               <div>
                 <p className="text-gray-600 text-sm">Overtime Hours:</p>
-                <p className="font-medium">{payroll.overtimeHours.toFixed(1)} hrs</p>
+                <p className="font-medium">
+                  {payroll.overtimeHours.toFixed(1)} hrs
+                </p>
               </div>
             </div>
           </div>
 
           {/* Payment Information */}
           <div className="mt-6">
-            <h2 className="text-lg font-semibold border-b pb-2 mb-3">Payment Information</h2>
+            <h2 className="text-lg font-semibold border-b pb-2 mb-3">
+              Payment Information
+            </h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <p className="text-gray-600 text-sm">Payment Status:</p>
-                <p className={`font-medium ${
-                  payroll.paymentStatus === 'paid' ? 'text-green-600' : 
-                  payroll.paymentStatus === 'pending' ? 'text-yellow-600' : 
-                  payroll.paymentStatus === 'processing' ? 'text-blue-600' : 'text-red-600'
-                }`}>
-                  {payroll.paymentStatus.charAt(0).toUpperCase() + payroll.paymentStatus.slice(1)}
+                <p
+                  className={`font-medium ${
+                    payroll.paymentStatus === "paid"
+                      ? "text-green-600"
+                      : payroll.paymentStatus === "pending"
+                      ? "text-yellow-600"
+                      : payroll.paymentStatus === "processing"
+                      ? "text-blue-600"
+                      : "text-red-600"
+                  }`}
+                >
+                  {payroll.paymentStatus.charAt(0).toUpperCase() +
+                    payroll.paymentStatus.slice(1)}
                 </p>
               </div>
               {payroll.paymentDate && (
                 <div>
                   <p className="text-gray-600 text-sm">Payment Date:</p>
-                  <p className="font-medium">{format(new Date(payroll.paymentDate), 'MMMM d, yyyy')}</p>
+                  <p className="font-medium">
+                    {format(new Date(payroll.paymentDate), "MMMM d, yyyy")}
+                  </p>
                 </div>
               )}
               <div>
@@ -321,7 +372,9 @@ const PaySlip = () => {
           {/* Notes */}
           {payroll.notes && (
             <div className="mt-6">
-              <h2 className="text-lg font-semibold border-b pb-2 mb-3">Notes</h2>
+              <h2 className="text-lg font-semibold border-b pb-2 mb-3">
+                Notes
+              </h2>
               <p>{payroll.notes}</p>
             </div>
           )}
@@ -329,8 +382,11 @@ const PaySlip = () => {
 
         {/* Footer */}
         <div className="bg-gray-50 px-6 py-4 border-t border-gray-200 text-center text-sm text-gray-500">
-          <p>This document is electronically generated and does not require a signature.</p>
-          <p>Generated on: {format(new Date(), 'MMMM d, yyyy')}</p>
+          <p>
+            This document is electronically generated and does not require a
+            signature.
+          </p>
+          <p>Generated on: {format(new Date(), "MMMM d, yyyy")}</p>
         </div>
       </div>
     </div>

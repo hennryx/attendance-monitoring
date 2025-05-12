@@ -1,5 +1,10 @@
 import React, { useState, useEffect } from "react";
-import { Dialog, DialogBackdrop, DialogPanel, DialogTitle } from "@headlessui/react";
+import {
+  Dialog,
+  DialogBackdrop,
+  DialogPanel,
+  DialogTitle,
+} from "@headlessui/react";
 import { HiOutlineX } from "react-icons/hi";
 import Swal from "sweetalert2";
 import axiosTools from "../../../../services/utilities/axiosUtils";
@@ -26,14 +31,14 @@ const PayrollModal = ({ isOpen, onClose, onPayrollGenerated, token }) => {
   useEffect(() => {
     if (isOpen) {
       fetchStaffAndDepartments();
-      
+
       // Set default period (current month)
       const now = new Date();
       const start = new Date(now.getFullYear(), now.getMonth(), 1);
       const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-      
-      setPeriodStart(start.toISOString().split('T')[0]);
-      setPeriodEnd(end.toISOString().split('T')[0]);
+
+      setPeriodStart(start.toISOString().split("T")[0]);
+      setPeriodEnd(end.toISOString().split("T")[0]);
     }
   }, [isOpen, token]);
 
@@ -47,17 +52,20 @@ const PayrollModal = ({ isOpen, onClose, onPayrollGenerated, token }) => {
         token
       );
 
-	  console.log(staffResponse);
-	  
+      console.log(staffResponse);
 
       if (staffResponse.success) {
-		const staffsList = staffResponse.data;
+        const staffsList = staffResponse.data;
         const activeStaff = staffsList.filter((s) => {
-			return s.status !== "inactive" && s.status !== "terminated" && s.baseSalary > 0
-		});
+          return (
+            s.status !== "inactive" &&
+            s.status !== "terminated" &&
+            s.baseSalary > 0
+          );
+        });
 
-		console.log(activeStaff);
-		
+        console.log(activeStaff);
+
         setStaff(activeStaff);
       }
 
@@ -133,13 +141,13 @@ const PayrollModal = ({ isOpen, onClose, onPayrollGenerated, token }) => {
             title: "Batch Payroll Generated",
             text: `Successfully generated ${response.data.success.length} payrolls`,
           });
-          
+
           // If some payrolls failed
           if (response.data.failed.length > 0) {
-            let failureMessages = response.data.failed.map(
-              (f) => `- ${f.name}: ${f.reason}`
-            ).join('\n');
-            
+            let failureMessages = response.data.failed
+              .map((f) => `- ${f.name}: ${f.reason}`)
+              .join("\n");
+
             Swal.fire({
               icon: "warning",
               title: "Some Payrolls Failed",
@@ -147,7 +155,7 @@ const PayrollModal = ({ isOpen, onClose, onPayrollGenerated, token }) => {
               footer: `<details><summary>Show Details</summary><pre>${failureMessages}</pre></details>`,
             });
           }
-          
+
           onClose();
         }
       } else {
@@ -169,12 +177,12 @@ const PayrollModal = ({ isOpen, onClose, onPayrollGenerated, token }) => {
             title: "Payroll Generated",
             text: "The payroll has been generated successfully",
           });
-          
+
           // Notify parent component about the new payroll
           if (onPayrollGenerated) {
             onPayrollGenerated(response.data);
           }
-          
+
           onClose();
         }
       }
@@ -275,7 +283,8 @@ const PayrollModal = ({ isOpen, onClose, onPayrollGenerated, token }) => {
                       <option value="">Select a staff member</option>
                       {staff.map((s) => (
                         <option key={s._id} value={s._id}>
-                          {s.firstname} {s.lastname} - {s.department} - ${s.baseSalary}
+                          {s.firstname} {s.lastname} - {s.department} - ₱
+                          {s.baseSalary}
                         </option>
                       ))}
                     </select>
@@ -441,7 +450,9 @@ const PayrollModal = ({ isOpen, onClose, onPayrollGenerated, token }) => {
                             onChange={(e) =>
                               setSettings({
                                 ...settings,
-                                absenceDeductionRate: parseFloat(e.target.value),
+                                absenceDeductionRate: parseFloat(
+                                  e.target.value
+                                ),
                               })
                             }
                             disabled={isLoading}
