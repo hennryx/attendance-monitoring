@@ -13,6 +13,7 @@ import Swal from "sweetalert2";
 import { format } from "date-fns";
 
 const FingerprintAttendance = () => {
+  const { clockIn, clockOut, startLunch, endLunch } = useAttendanceStore();
   const {
     fingerprint,
     status,
@@ -112,30 +113,22 @@ const FingerprintAttendance = () => {
 
       switch (scanAction) {
         case "clock-in":
-          response = await useAttendanceStore
-            .getState()
-            .clockIn({ fingerprint: cleanedFingerprint });
+          response = await clockIn({ fingerprint: cleanedFingerprint });
           actionDescription = "Clock In";
           break;
 
         case "lunch-start":
-          response = await useAttendanceStore
-            .getState()
-            .startLunch({ fingerprint: cleanedFingerprint });
+          response = await startLunch({ fingerprint: cleanedFingerprint });
           actionDescription = "Start Lunch Break";
           break;
 
         case "lunch-end":
-          response = await useAttendanceStore
-            .getState()
-            .endLunch({ fingerprint: cleanedFingerprint });
+          response = await endLunch({ fingerprint: cleanedFingerprint });
           actionDescription = "End Lunch Break";
           break;
 
         case "clock-out":
-          response = await useAttendanceStore
-            .getState()
-            .clockOut({ fingerprint: cleanedFingerprint });
+          response = await clockOut({ fingerprint: cleanedFingerprint });
           actionDescription = "Clock Out";
           break;
 

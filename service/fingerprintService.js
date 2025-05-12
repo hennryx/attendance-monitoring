@@ -1,5 +1,6 @@
 const axios = require("axios");
 const FingerPrint = require("../models/FingerPrint"); // Update path as needed
+const Users = require("../models/Users");
 
 const FINGERPRINT_SERVER_URL = "http://localhost:5500"; // Update with your Python server URL
 
@@ -211,15 +212,8 @@ class FingerprintService {
 // Helper function to get user data
 async function getUserData(staffId) {
   try {
-    // This is a placeholder - implement your own user data retrieval
-    // const user = await User.findById(staffId);
-    // return user ? { name: user.firstname, email: user.email } : null;
-
-    // For now, return a placeholder
-    return {
-      name: "User",
-      email: "user@example.com",
-    };
+    const user = await Users.findById(staffId);
+    return user ? { name: user.firstname, email: user.email } : null;
   } catch (error) {
     console.error("Error fetching user data:", error);
     return null;
