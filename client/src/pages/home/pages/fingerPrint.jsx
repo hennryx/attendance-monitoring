@@ -7,13 +7,17 @@ import useAttendanceStore from "../../../services/stores/attendance/attendanceSt
 const Fingerprint = () => {
   const navigate = useNavigate();
   const {
-    fingerprintAttendance,
+    // fingerprintAttendance,
+    matchFingerprint,
+    recordAttendance,
     message,
     reset,
     isSuccess,
     staffData,
     attendanceType,
     isLoading,
+    matchedUser,
+    isMatched,
   } = useAttendanceStore();
 
   const {
@@ -117,6 +121,8 @@ const Fingerprint = () => {
         // Reset after displaying success message
         resetScanState();
       });
+
+      reset();
     } else if (!isSuccess && message) {
       Swal.fire({
         title: "Attendance Failed",
@@ -125,6 +131,7 @@ const Fingerprint = () => {
         confirmButtonText: "Try Again",
       }).then(() => {
         resetScanState();
+        reset();
       });
     }
   }, [isSuccess, staffData, message, attendanceType]);
@@ -266,11 +273,11 @@ const Fingerprint = () => {
 
         Swal.update({
           title: "Processing...",
-          text: "Identifying staff and recording attendance",
+          text: "Identifying staff...",
         });
 
-        // Use the fingerprintAttendance method
-        await fingerprintAttendance(cleanedFingerprintData);
+        // First, just match the fingerprint to identify the user
+        await matchFingerprint(cleanedFingerprintData);
       }
     } catch (error) {
       console.error("Scan error:", error);
@@ -289,6 +296,57 @@ const Fingerprint = () => {
       setIsScanning(false);
     }
   };
+
+  useEffect(() => {
+    if (isMatched && matchedUser && message !== "") {
+      // Ask for confirmation before recording attendance
+      Swal.fire({
+        title: "Confirm Identity",
+        html: `
+          <div class="text-center">
+            <p>Are you <strong>${matchedUser.name}</strong>?</p>
+            <p class="text-sm text-gray-600">${matchedUser.email || ""}</p>
+          </div>
+        `,
+        icon: "question",
+        showCancelButton: true,
+        confirmButtonText: "Yes, it's me",
+        cancelButtonText: "No, try again",
+        allowOutsideClick: false,
+      }).then((res) => {
+        if (res.isConfirmed) {
+          Swal.fire({
+            title: "Recording Attendance...",
+            text: "Please wait",
+            allowOutsideClick: false,
+            showConfirmButton: false,
+            didOpen: () => {
+              Swal.showLoading();
+            },
+          });
+
+          recordAttendance(matchedUser.staffId);
+          resetScanState();
+        } else {
+          resetScanState();
+        }
+      });
+    } else if (!isMatched && message !== "") {
+      console.log("matchedUser ", matchedUser);
+
+      // No match found
+      Swal.fire({
+        title: "No Match Found",
+        text:
+          message ||
+          "Your fingerprint was not recognized. Please try again or contact an administrator.",
+        icon: "error",
+        confirmButtonText: "Try Again",
+      }).then(() => {
+        resetScanState();
+      });
+    }
+  }, [matchedUser, isMatched, message]);
 
   return (
     <div className="relative isolate bg-[#1b1b1b] px-6 pt-14 lg:px-16 h-screen overflow-hidden">
