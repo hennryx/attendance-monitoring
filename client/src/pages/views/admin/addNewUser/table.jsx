@@ -6,15 +6,25 @@ import useAuthStore from "../../../../services/stores/authStore";
 import { FingerprintModal } from "./FingerprintModal";
 
 const Table = ({ data, toggleAdd, handleUpdate }) => {
-  const { deleteUser, enrollFingerPrint } = useUsersStore();
+  const {
+    deleteUser,
+    enrollFingerPrint,
+    getEnrollmentStatus,
+    deleteFingerprints, // Make sure this function is implemented in usersStore
+  } = useUsersStore();
+
   const { token } = useAuthStore();
   const [searchResult, setSearchResult] = useState("");
   const [allData, setAllData] = useState(data);
   const [searchTerm, setSearchTerm] = useState("");
 
+  const [enrollmentDetailsCache, setEnrollmentDetailsCache] = useState({});
+
   // State for fingerprint modal
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedStaff, setSelectedStaff] = useState(null);
+  // State for enrollment details
+  const [enrollmentDetails, setEnrollmentDetails] = useState(null);
 
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(5);
@@ -92,7 +102,7 @@ const Table = ({ data, toggleAdd, handleUpdate }) => {
   }, []);
 
   // Handle opening the fingerprint registration modal
-  const handleFingerprintRegister = (staff) => {
+  const handleFingerprintRegister = async (staff) => {
     // Check if the Fingerprint SDK is available
     if (!window.Fingerprint || !window.Fingerprint.WebApi) {
       Swal.fire({
@@ -114,14 +124,179 @@ const Table = ({ data, toggleAdd, handleUpdate }) => {
       return;
     }
 
-    setSelectedStaff(staff);
-    setIsModalOpen(true);
+    // Check enrollment cache first to avoid unnecessary API calls
+    const hasEnrollmentDetails = Object.keys(enrollmentDetailsCache).includes(
+      staff._id
+    );
+
+    // If we already have this staff's enrollment details cached, use that
+    if (hasEnrollmentDetails) {
+      setEnrollmentDetails(enrollmentDetailsCache[staff._id]);
+      setSelectedStaff(staff);
+      setIsModalOpen(true);
+      return;
+    }
+
+    // Show loading indicator
+    const loadingAlert = Swal.fire({
+      title: "Checking enrollment status...",
+      allowOutsideClick: false,
+      didOpen: () => {
+        Swal.showLoading();
+      },
+    });
+
+    // Add timeout to the getEnrollmentStatus call
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(
+        () => reject(new Error("Timeout getting enrollment status")),
+        5000
+      )
+    );
+
+    try {
+      // Race the API call against a timeout
+      const status = await Promise.race([
+        getEnrollmentStatus(staff._id, token),
+        timeoutPromise,
+      ]);
+
+      // Store in cache for future use
+      const cacheUpdate = { ...enrollmentDetailsCache };
+      cacheUpdate[staff._id] = status;
+      setEnrollmentDetailsCache(cacheUpdate);
+
+      setEnrollmentDetails(status);
+      setSelectedStaff(staff);
+      loadingAlert.close();
+      setIsModalOpen(true);
+    } catch (error) {
+      console.error("Error getting enrollment status:", error);
+
+      // Derive enrollment status from staff data if possible
+      let defaultStatus = {
+        enrollCount: staff.fingerprintTemplateCount || 0,
+        templateCount: staff.fingerprintTemplateCount || 0,
+        enrollmentStatus: staff.fingerprintEnrollStatus || "incomplete",
+        minEnrollments: 2,
+        maxEnrollments: 5,
+        remaining: 2,
+      };
+
+      // Calculate remaining based on min enrollments and current count
+      if (defaultStatus.enrollCount > 0) {
+        defaultStatus.remaining = Math.max(0, 2 - defaultStatus.enrollCount);
+      }
+
+      // Cache this derived data too
+      const cacheUpdate = { ...enrollmentDetailsCache };
+      cacheUpdate[staff._id] = defaultStatus;
+      setEnrollmentDetailsCache(cacheUpdate);
+
+      setEnrollmentDetails(defaultStatus);
+      setSelectedStaff(staff);
+
+      loadingAlert.close();
+
+      // Show warning toast
+      const Toast = Swal.mixin({
+        toast: true,
+        position: "top-end",
+        showConfirmButton: false,
+        timer: 3000,
+        timerProgressBar: true,
+      });
+
+      Toast.fire({
+        icon: "warning",
+        title: "Using cached enrollment data",
+      });
+
+      setIsModalOpen(true);
+    }
   };
 
-  // Handle successful fingerprint capture
+  // Update the cache when enrollment succeeds
   const handleFingerprintCapture = async (data) => {
     console.log("Fingerprint Captured:", data);
-    await enrollFingerPrint(data, token);
+
+    try {
+      Swal.fire({
+        title: "Processing fingerprint...",
+        allowOutsideClick: false,
+        didOpen: () => {
+          Swal.showLoading();
+        },
+      });
+
+      const result = await enrollFingerPrint(data, token);
+      Swal.close();
+
+      console.log("Enrollment result:", result);
+
+      // Update enrollment details with response
+      if (result && result.success) {
+        const updatedDetails = {
+          enrollCount: result.enrollCount,
+          templateCount: result.enrollCount,
+          enrollmentStatus: result.enrollStatus,
+          minEnrollments: result.minEnrollments,
+          maxEnrollments: result.maxEnrollments,
+          remaining: result.remaining,
+        };
+
+        // Update the cache with the new details
+        const cacheUpdate = { ...enrollmentDetailsCache };
+        cacheUpdate[data.staffId] = updatedDetails;
+        setEnrollmentDetailsCache(cacheUpdate);
+
+        setEnrollmentDetails(updatedDetails);
+
+        // Update user data to reflect fingerprint enrollment
+        const updatedUsers = allData.map((user) => {
+          if (user._id === data.staffId) {
+            return {
+              ...user,
+              hasFingerPrint: true,
+              fingerprintEnrollStatus: result.enrollStatus,
+              fingerprintTemplateCount: result.enrollCount,
+            };
+          }
+          return user;
+        });
+
+        setAllData(updatedUsers);
+
+        // Show success message based on enrollment status
+        if (result.enrollStatus === "complete") {
+          Swal.fire({
+            title: "Enrollment Complete!",
+            text: "All required fingerprint samples have been collected.",
+            icon: "success",
+          });
+        } else {
+          // Show progress message
+          Swal.fire({
+            title: "Sample Recorded",
+            text: `${result.remaining} more sample(s) recommended for better matching.`,
+            icon: "info",
+          });
+        }
+
+        return result;
+      }
+
+      return null;
+    } catch (error) {
+      console.error("Error enrolling fingerprint:", error);
+      Swal.fire({
+        title: "Enrollment Error",
+        text:
+          error.message || "An error occurred during fingerprint enrollment.",
+        icon: "error",
+      });
+      return null;
+    }
   };
 
   const handleDelete = (e, data) => {
@@ -142,6 +317,70 @@ const Table = ({ data, toggleAdd, handleUpdate }) => {
     });
   };
 
+  // Delete fingerprints for a user
+  const handleDeleteFingerprints = async (e, user) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    Swal.fire({
+      title: "Delete Fingerprint Templates?",
+      text: "This will delete all fingerprint enrollments for this user. They will need to re-enroll.",
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonColor: "#d33",
+      cancelButtonColor: "#3085d6",
+      confirmButtonText: "Yes, Delete Fingerprints",
+    }).then(async (result) => {
+      if (result.isConfirmed) {
+        try {
+          Swal.fire({
+            title: "Deleting fingerprints...",
+            allowOutsideClick: false,
+            didOpen: () => {
+              Swal.showLoading();
+            },
+          });
+
+          // Call the deleteFingerprints function from usersStore
+          await deleteFingerprints(user._id, token);
+
+          // Clear the cache for this user
+          const newCache = { ...enrollmentDetailsCache };
+          delete newCache[user._id];
+          setEnrollmentDetailsCache(newCache);
+
+          // Update user in the UI
+          const updatedUsers = allData.map((u) => {
+            if (u._id === user._id) {
+              return {
+                ...u,
+                hasFingerPrint: false,
+                fingerprintEnrollStatus: null,
+                fingerprintTemplateCount: 0,
+              };
+            }
+            return u;
+          });
+
+          setAllData(updatedUsers);
+
+          Swal.fire({
+            title: "Success!",
+            text: "Fingerprint templates deleted successfully.",
+            icon: "success",
+          });
+        } catch (error) {
+          console.error("Error deleting fingerprints:", error);
+          Swal.fire({
+            title: "Error",
+            text: "Failed to delete fingerprint templates.",
+            icon: "error",
+          });
+        }
+      }
+    });
+  };
+
   useEffect(() => {
     if (data || searchTerm) {
       const term = searchTerm.toLowerCase();
@@ -154,9 +393,9 @@ const Table = ({ data, toggleAdd, handleUpdate }) => {
 
       const filtered = data.filter(
         (user) =>
-          user.firstName?.toLowerCase().includes(term) ||
-          user.middleName?.toLowerCase().includes(term) ||
-          user.lastName?.toLowerCase().includes(term) ||
+          user.firstname?.toLowerCase().includes(term) ||
+          user.middlename?.toLowerCase().includes(term) ||
+          user.lastname?.toLowerCase().includes(term) ||
           user.email?.toLowerCase().includes(term)
       );
 
@@ -173,7 +412,6 @@ const Table = ({ data, toggleAdd, handleUpdate }) => {
   const indexOfLastItem = currentPage * itemsPerPage;
   const indexOfFirstItem = indexOfLastItem - itemsPerPage;
   const currentItems = allData.slice(indexOfFirstItem, indexOfLastItem);
-  console.log(currentItems);
 
   const totalPages = Math.ceil(allData.length / itemsPerPage);
 
@@ -192,10 +430,8 @@ const Table = ({ data, toggleAdd, handleUpdate }) => {
   }
 
   const renderPagination = () => {
-    // Pagination component remains the same
     return (
       <div className="flex items-center justify-between border-t border-gray-200 bg-white px-4 py-3 sm:px-6">
-        {/* Existing pagination code */}
         <div className="flex flex-1 justify-between sm:hidden">
           <button
             onClick={() => handlePageChange(Math.max(1, currentPage - 1))}
@@ -364,13 +600,14 @@ const Table = ({ data, toggleAdd, handleUpdate }) => {
             <th>Name</th>
             <th>Mail</th>
             <th>Role</th>
+            <th>Fingerprint Status</th>
             <th>Action</th>
           </tr>
         </thead>
         <tbody className="text-gray-500">
           {searchResult ? (
             <tr>
-              <td colSpan={5} className="text-center py-4 text-gray-500">
+              <td colSpan={6} className="text-center py-4 text-gray-500">
                 {searchResult}
               </td>
             </tr>
@@ -383,6 +620,29 @@ const Table = ({ data, toggleAdd, handleUpdate }) => {
                 </td>
                 <td>{_data.email}</td>
                 <td>{_data.role}</td>
+                <td>
+                  {_data.hasFingerPrint ? (
+                    <div className="flex flex-col">
+                      <span className="text-green-600 font-medium">
+                        {_data.fingerprintEnrollStatus === "complete"
+                          ? "Complete"
+                          : "Partial"}
+                        ({_data.fingerprintTemplateCount || 1}
+                        {_data.fingerprintTemplateCount === 1
+                          ? " sample"
+                          : " samples"}
+                        )
+                      </span>
+                      {_data.fingerprintEnrollStatus !== "complete" && (
+                        <span className="text-xs text-amber-600">
+                          More samples recommended
+                        </span>
+                      )}
+                    </div>
+                  ) : (
+                    <span className="text-red-600">Not Enrolled</span>
+                  )}
+                </td>
                 <td className="flex flex-row justify-center items-center gap-2 p-2">
                   <button
                     className="p-2 bg-blue-200 text-blue-800 rounded-md hover:bg-blue-300"
@@ -396,14 +656,24 @@ const Table = ({ data, toggleAdd, handleUpdate }) => {
                   >
                     Delete
                   </button>
-                  <button
-                    className="p-2 bg-green-200 text-green-800 rounded-md hover:bg-green-300"
-                    onClick={() => handleFingerprintRegister(_data)}
-                  >
-                    {!_data?.hasFingerPrint
-                      ? "Register Fingerprint"
-                      : "Update Fingerprint"}
-                  </button>
+                  <div className="flex flex-col gap-1">
+                    <button
+                      className="p-2 bg-green-200 text-green-800 rounded-md hover:bg-green-300"
+                      onClick={() => handleFingerprintRegister(_data)}
+                    >
+                      {!_data?.hasFingerPrint
+                        ? "Register Fingerprint"
+                        : "Add Samples"}
+                    </button>
+                    {_data?.hasFingerPrint && (
+                      <button
+                        className="p-1 text-xs bg-red-100 text-red-800 rounded-md hover:bg-red-200"
+                        onClick={(e) => handleDeleteFingerprints(e, _data)}
+                      >
+                        Reset Fingerprints
+                      </button>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))
@@ -419,6 +689,7 @@ const Table = ({ data, toggleAdd, handleUpdate }) => {
           onClose={() => setIsModalOpen(false)}
           onCapture={handleFingerprintCapture}
           staffId={selectedStaff._id}
+          enrollmentDetails={enrollmentDetails}
         />
       )}
     </div>

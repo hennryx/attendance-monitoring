@@ -17,6 +17,6 @@ const access = [
     icon: BsPersonAdd,
     element: AddNewUser,
   },
-]
+];
 
 export default access;

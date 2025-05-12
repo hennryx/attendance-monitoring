@@ -85,26 +85,6 @@ const useUsersStore = create((set, get) => ({
     }
   },
 
-  enrollFingerPrint: async (data, token) => {
-    set({ isLoading: true, message: "", isSuccess: false });
-
-    try {
-      const res = await axiosTools.creteData("users/enroll", data, token);
-
-      set({
-        isSuccess: res.success,
-        isLoading: false,
-        message: res.message,
-      });
-    } catch (error) {
-      set({
-        isLoading: false,
-        message: error,
-        isSuccess: false,
-      });
-    }
-  },
-
   matchFingerPrint: async (data) => {
     set({ isLoading: true, message: "", isSuccess: false });
 
@@ -151,6 +131,123 @@ const useUsersStore = create((set, get) => ({
       isSuccess: false,
       isLoading: false,
     });
+  },
+
+  enrollFingerPrint: async (data, token) => {
+    set({ isLoading: true, message: "", isSuccess: false });
+
+    try {
+      // Use axiosTools instead of api
+      const res = await axiosTools.creteData("fingerprint/enroll", data, token);
+
+      if (res.success) {
+        // Update the user's fingerprint status in the data array
+        const updatedData = get().data.map((user) => {
+          if (user._id === data.staffId) {
+            return {
+              ...user,
+              hasFingerPrint: true,
+              fingerprintEnrollStatus: res.enrollStatus,
+              fingerprintTemplateCount: res.enrollCount,
+            };
+          }
+          return user;
+        });
+
+        set({
+          data: updatedData,
+          isSuccess: true,
+          isLoading: false,
+          message: res.message || "Fingerprint enrolled successfully!",
+        });
+
+        return res;
+      } else {
+        throw new Error(res.message || "Enrollment failed");
+      }
+    } catch (error) {
+      set({
+        isLoading: false,
+        message: error?.message || "Failed to enroll fingerprint",
+        isSuccess: false,
+      });
+      throw error;
+    }
+  },
+
+  // Get enrollment status for a staff ID
+  getEnrollmentStatus: async (staffId, token) => {
+    try {
+      // Use axiosTools instead of api
+      const res = await axiosTools.getData(
+        `fingerprint/templates/${staffId}`,
+        "",
+        token
+      );
+
+      if (res.success) {
+        return {
+          enrollCount: res.templateCount,
+          templateCount: res.templateCount,
+          enrollmentStatus: res.enrollmentStatus,
+          minEnrollments: res.minEnrollments,
+          maxEnrollments: res.maxEnrollments,
+          remaining: res.remaining,
+        };
+      } else {
+        throw new Error(res.message || "Failed to get enrollment status");
+      }
+    } catch (error) {
+      console.error("Error getting enrollment status:", error);
+      throw error;
+    }
+  },
+
+  // Delete all fingerprint templates for a staff ID
+  deleteFingerprints: async (staffId, token) => {
+    set({ isLoading: true, message: "", isSuccess: false });
+
+    try {
+      // Use axiosTools instead of api
+      const res = await axiosTools.deleteData(
+        `fingerprint/templates/${staffId}`,
+        { staffId },
+        token
+      );
+
+      if (res.success) {
+        // Update the user's fingerprint status in the data array
+        const updatedData = get().data.map((user) => {
+          if (user._id === staffId) {
+            return {
+              ...user,
+              hasFingerPrint: false,
+              fingerprintEnrollStatus: null,
+              fingerprintTemplateCount: 0,
+            };
+          }
+          return user;
+        });
+
+        set({
+          data: updatedData,
+          isSuccess: true,
+          isLoading: false,
+          message: res.message || "Fingerprints deleted successfully!",
+        });
+
+        return res;
+      } else {
+        throw new Error(res.message || "Failed to delete fingerprints");
+      }
+    } catch (error) {
+      set({
+        isLoading: false,
+        message: error?.message || "Failed to delete fingerprints",
+        isSuccess: false,
+      });
+      throw error;
+    }
   },
 }));
 
