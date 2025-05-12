@@ -199,6 +199,13 @@ export const useFingerprintScanner = () => {
     }
   };
 
+  // Reset fingerprint image and related states
+  const resetFingerprint = () => {
+    setFingerprint(null);
+    setScanQuality("");
+    setStatus("Ready to scan");
+  };
+
   // Scan fingerprint and return result with timeout
   const scanFingerprint = async (timeoutMs = 30000) => {
     return new Promise(async (resolve, reject) => {
@@ -356,5 +363,6 @@ export const useFingerprintScanner = () => {
     refreshSdk,
     isInitialized,
     scanQuality,
+    resetFingerprint, // New function to reset fingerprint state
   };
 };

@@ -1,284 +1,180 @@
-// client/src/services/stores/attendance/attendanceStore.js
 import { create } from "zustand";
 import axiosTools from "../../utilities/axiosUtils";
-import { ENDPOINT } from "../../utilities";
 
+const base = "attendance";
 const useAttendanceStore = create((set, get) => ({
   data: [],
-  todayAttendance: null,
-  recentAttendance: [],
   isLoading: false,
   message: "",
   isSuccess: false,
+  attendanceType: null, // "in", "lunch-start", "lunch-end", "out"
+  staffData: null, // Additional staff data returned by the server
 
-  // Get staff attendance records
-  getStaffAttendance: async (staffId, token, startDate, endDate) => {
-    set({ isLoading: true, message: "", isSuccess: false });
+  getAttendance: async (token) => {
     try {
-      // Format query parameters
-      const queryParams = {
-        staffId,
-        startDate: startDate || new Date().toISOString().split("T")[0], // Default to today
-        endDate: endDate || new Date().toISOString().split("T")[0], // Default to today
-      };
+      const res = await axiosTools.getData(`${base}/getAll`, "", token);
 
-      const res = await axiosTools.getData(
-        `${ENDPOINT}/attendance/staff`,
-        queryParams,
-        token
-      );
-
-      if (res.success) {
-        // If fetching today's attendance, store it separately
-        if (
-          (!startDate && !endDate) ||
-          (startDate === new Date().toISOString().split("T")[0] &&
-            endDate === new Date().toISOString().split("T")[0])
-        ) {
-          set({
-            todayAttendance: res.data.length > 0 ? res.data[0] : null,
-          });
-        }
-
-        set({
-          data: res.data,
-          isSuccess: true,
-          isLoading: false,
-        });
-      } else {
-        set({
-          isSuccess: false,
-          isLoading: false,
-          message: res.message || "Failed to fetch attendance records",
-        });
-      }
+      set({
+        data: res.data,
+        isSuccess: res.success,
+      });
     } catch (error) {
       set({
-        isLoading: false,
-        message: error?.message || "Something went wrong",
         isSuccess: false,
+        message: error?.response?.data?.message || "Something went wrong",
       });
     }
   },
 
-  // Get recent attendance records (last 7 days)
-  getRecentAttendance: async (staffId, token) => {
-    set({ isLoading: true });
-    try {
-      // Calculate date range (last 7 days)
-      const endDate = new Date();
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - 7);
-
-      const queryParams = {
-        staffId,
-        startDate: startDate.toISOString().split("T")[0],
-        endDate: endDate.toISOString().split("T")[0],
-      };
-
-      const res = await axiosTools.getData(
-        `${ENDPOINT}/attendance/staff`,
-        queryParams,
-        token
-      );
-
-      if (res.success) {
-        set({
-          recentAttendance: res.data,
-          isLoading: false,
-        });
-      } else {
-        set({
-          isLoading: false,
-          message: res.message || "Failed to fetch recent attendance",
-        });
-      }
-    } catch (error) {
-      set({
-        isLoading: false,
-        message: error?.message || "Something went wrong",
-      });
-    }
-  },
-
-  // Clock in with fingerprint
-  clockIn: async (data, token) => {
+  // Auto-detect attendance type and register it
+  // This supports both fingerprint and staffId-based attendance
+  clockIn: async (data) => {
     set({ isLoading: true, message: "", isSuccess: false });
+
     try {
-      const res = await axiosTools.saveData(
-        `${ENDPOINT}/attendance/clock-in`,
-        data,
-        token
-      );
+      // This endpoint will auto-detect if it's clock-in, lunch, or clock-out
+      const res = await axiosTools.saveData(`${base}/clock-in`, data, "");
 
       set({
         isSuccess: res.success,
         isLoading: false,
-        message: res.message || "Clock-in successful",
-        todayAttendance: res.data,
+        message: res.message,
+        attendanceType: res.data?.attendanceType || "in", // Store the detected type
+        staffData: {
+          name: res.data?.staffName,
+          department: res.data?.department,
+          position: res.data?.position,
+        },
       });
 
       return res;
     } catch (error) {
       set({
         isLoading: false,
-        message: error?.message || "Clock-in failed",
+        message: error.message || "Failed to register attendance",
         isSuccess: false,
       });
-      throw error;
+
+      return { success: false, message: error.message };
     }
   },
 
-  // Clock out
-  clockOut: async (data, token) => {
+  // Method to register attendance with a fingerprint
+  fingerprintAttendance: async (fingerprint) => {
     set({ isLoading: true, message: "", isSuccess: false });
+
     try {
+      // This uses the same endpoint but passes fingerprint data
       const res = await axiosTools.saveData(
-        `${ENDPOINT}/attendance/clock-out`,
-        data,
-        token
+        `${base}/clock-in`,
+        { fingerprint },
+        ""
       );
 
       set({
         isSuccess: res.success,
         isLoading: false,
-        message: res.message || "Clock-out successful",
-        todayAttendance: res.data,
+        message: res.message,
+        attendanceType: res.data?.attendanceType || "in",
+        staffData: {
+          name: res.data?.staffName,
+          department: res.data?.department,
+          position: res.data?.position,
+        },
       });
 
       return res;
     } catch (error) {
       set({
         isLoading: false,
-        message: error?.message || "Clock-out failed",
+        message: error.message || "Failed to register attendance",
         isSuccess: false,
       });
-      throw error;
+
+      return { success: false, message: error.message };
     }
   },
 
-  // Start lunch break
-  startLunch: async (data, token) => {
+  // Legacy methods - kept for compatibility
+  clockOut: async (data) => {
     set({ isLoading: true, message: "", isSuccess: false });
+
     try {
-      const res = await axiosTools.saveData(
-        `${ENDPOINT}/attendance/lunch-start`,
-        data,
-        token
-      );
+      const res = await axiosTools.saveData(`${base}/clock-out`, data);
 
       set({
         isSuccess: res.success,
         isLoading: false,
-        message: res.message || "Lunch break started",
-        todayAttendance: res.data,
+        message: res.message,
       });
 
       return res;
     } catch (error) {
       set({
         isLoading: false,
-        message: error?.message || "Failed to start lunch break",
+        message: error.message || "Failed to clock out",
         isSuccess: false,
       });
-      throw error;
+
+      return { success: false, message: error.message };
     }
   },
 
-  // End lunch break
-  endLunch: async (data, token) => {
+  startLunch: async (data) => {
     set({ isLoading: true, message: "", isSuccess: false });
+
     try {
-      const res = await axiosTools.saveData(
-        `${ENDPOINT}/attendance/lunch-end`,
-        data,
-        token
-      );
+      const res = await axiosTools.saveData(`${base}/lunch-start`, data, "");
 
       set({
         isSuccess: res.success,
         isLoading: false,
-        message: res.message || "Lunch break ended",
-        todayAttendance: res.data,
+        message: res.message,
       });
 
       return res;
     } catch (error) {
       set({
         isLoading: false,
-        message: error?.message || "Failed to end lunch break",
+        message: error.message || "Failed to start lunch",
         isSuccess: false,
       });
-      throw error;
+
+      return { success: false, message: error.message };
     }
   },
 
-  // Submit reason for absence or lateness
-  submitReason: async (data, token) => {
+  endLunch: async (data) => {
     set({ isLoading: true, message: "", isSuccess: false });
+
     try {
-      const res = await axiosTools.saveData(
-        `${ENDPOINT}/attendance/submit-reason`,
-        data,
-        token
-      );
+      const res = await axiosTools.saveData(`${base}/lunch-end`, data, "");
 
       set({
         isSuccess: res.success,
         isLoading: false,
-        message: res.message || "Reason submitted successfully",
-        todayAttendance: res.data,
+        message: res.message,
       });
 
       return res;
     } catch (error) {
       set({
         isLoading: false,
-        message: error?.message || "Failed to submit reason",
+        message: error.message || "Failed to end lunch",
         isSuccess: false,
       });
-      throw error;
+
+      return { success: false, message: error.message };
     }
   },
 
-  // Get attendance statistics (Admin only)
-  getAttendanceStats: async (params, token) => {
-    set({ isLoading: true });
-    try {
-      const res = await axiosTools.getData(
-        `${ENDPOINT}/attendance/stats`,
-        params,
-        token
-      );
-
-      if (res.success) {
-        set({
-          attendanceStats: res.stats,
-          isLoading: false,
-        });
-        return res.stats;
-      } else {
-        set({
-          isLoading: false,
-          message: res.message || "Failed to fetch attendance statistics",
-        });
-        return null;
-      }
-    } catch (error) {
-      set({
-        isLoading: false,
-        message: error?.message || "Something went wrong",
-      });
-      return null;
-    }
-  },
-
-  // Reset state
   reset: () => {
     set({
       message: "",
       isSuccess: false,
       isLoading: false,
+      attendanceType: null,
+      staffData: null,
     });
   },
 }));

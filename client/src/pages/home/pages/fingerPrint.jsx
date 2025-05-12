@@ -1,19 +1,21 @@
-// client/src/pages/home/pages/fingerprintAttendance.jsx
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { useFingerprintScanner } from "../../../services/utilities/FingerprintScanner";
-import useAttendanceStore from "../../../services/stores/attendance/attendanceStore";
-import {
-  FaFingerprint,
-  FaClock,
-  FaUtensils,
-  FaCheck,
-  FaArrowRight,
-} from "react-icons/fa";
+import { useNavigate } from "react-router-dom";
 import Swal from "sweetalert2";
-import { format } from "date-fns";
+import useAttendanceStore from "../../../services/stores/attendance/attendanceStore";
 
-const FingerprintAttendance = () => {
-  const { clockIn, clockOut, startLunch, endLunch } = useAttendanceStore();
+const Fingerprint = () => {
+  const navigate = useNavigate();
+  const {
+    fingerprintAttendance,
+    message,
+    reset,
+    isSuccess,
+    staffData,
+    attendanceType,
+    isLoading,
+  } = useAttendanceStore();
+
   const {
     fingerprint,
     status,
@@ -21,252 +23,275 @@ const FingerprintAttendance = () => {
     selectedReader,
     scanFingerprint,
     refreshSdk,
+    isInitialized,
+    stopCapture,
+    resetFingerprint,
   } = useFingerprintScanner();
 
   const [isScanning, setIsScanning] = useState(false);
-  const [currentTime, setCurrentTime] = useState(new Date());
-  const [scanAction, setScanAction] = useState("clock-in");
-  const [attendance, setAttendance] = useState(null);
-  const [scanResult, setScanResult] = useState(null);
+  const [scanError, setScanError] = useState(null);
+  const [scanTimeout, setScanTimeout] = useState(null);
 
-  // Update current time every second
   useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentTime(new Date());
-    }, 1000);
+    if (!window.Fingerprint) {
+      Swal.fire({
+        title: "SDK Not Available",
+        text: "The Fingerprint SDK is not available or scripts haven't loaded. Please refresh the page and try again.",
+        icon: "error",
+      }).then(() => {
+        navigate("/");
+      });
+    }
+  }, [navigate]);
 
-    return () => clearInterval(timer);
+  useEffect(() => {
+    let timeoutId;
+
+    if (isInitialized) {
+      timeoutId = setTimeout(() => {
+        if (readers.length === 0) {
+          Swal.fire({
+            title: "No Reader Found",
+            text: "No fingerprint readers detected. Please connect a reader and try again.",
+            icon: "warning",
+            showCancelButton: true,
+            confirmButtonText: "Refresh Readers",
+            cancelButtonText: "Go Back",
+          }).then((result) => {
+            if (result.isConfirmed) {
+              refreshSdk();
+            } else {
+              navigate("/");
+            }
+          });
+        }
+      }, 5000);
+    }
+
+    return () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+    };
+  }, [isInitialized, readers.length, refreshSdk, navigate]);
+
+  // Handle attendance results
+  useEffect(() => {
+    if (isSuccess && staffData) {
+      // Define action text based on attendanceType
+      let actionText;
+      switch (attendanceType) {
+        case "in":
+          actionText = "Clock In";
+          break;
+        case "lunch-start":
+          actionText = "Start Lunch";
+          break;
+        case "lunch-end":
+          actionText = "End Lunch";
+          break;
+        case "out":
+          actionText = "Clock Out";
+          break;
+        default:
+          actionText = "Attendance";
+      }
+
+      Swal.fire({
+        title: "Staff Identified",
+        html: `
+          <div class="text-left">
+            <p class="font-bold">${staffData.name || "Unknown Staff"}</p>
+            <p class="text-sm text-gray-600">${staffData.department || ""}</p>
+            <p class="text-sm text-gray-600">${staffData.position || ""}</p>
+            <p class="mt-3">Action: <span class="font-bold">${actionText}</span></p>
+            <p class="mt-2">${message}</p>
+          </div>
+        `,
+        icon: "success",
+        timer: 4000,
+        timerProgressBar: true,
+        showConfirmButton: false,
+      }).then(() => {
+        // Reset after displaying success message
+        resetScanState();
+      });
+    } else if (!isSuccess && message) {
+      Swal.fire({
+        title: "Attendance Failed",
+        text: message,
+        icon: "error",
+        confirmButtonText: "Try Again",
+      }).then(() => {
+        resetScanState();
+      });
+    }
+  }, [isSuccess, staffData, message, attendanceType]);
+
+  // Load fingerprint SDK
+  useEffect(() => {
+    if (!window.fingerprintScriptLoading) {
+      window.fingerprintScriptLoading = true;
+
+      if (window.Fingerprint && window.Fingerprint.WebApi) {
+        console.log("Fingerprint SDK already loaded");
+        window.fingerprintScriptLoading = false;
+        return;
+      }
+
+      const loadScript = (src) => {
+        return new Promise((resolve, reject) => {
+          const existingScript = document.querySelector(`script[src="${src}"]`);
+          if (existingScript) {
+            console.log(`Script already loaded: ${src}`);
+            resolve();
+            return;
+          }
+
+          const script = document.createElement("script");
+          script.src = src;
+          script.async = true;
+
+          script.onload = () => {
+            console.log(`Script loaded: ${src}`);
+            resolve();
+          };
+
+          script.onerror = (error) => {
+            console.error(`Error loading script: ${src}`, error);
+            reject(new Error(`Failed to load ${src}`));
+          };
+
+          document.head.appendChild(script);
+        });
+      };
+
+      const loadSDK = async () => {
+        try {
+          console.log("Loading Fingerprint SDK scripts...");
+          await loadScript("/scripts/es6-shim.js");
+          await loadScript("/scripts/websdk.client.bundle.min.js");
+          await loadScript("/scripts/fingerprint.sdk.min.js");
+
+          await new Promise((resolve) => setTimeout(resolve, 500));
+
+          if (window.Fingerprint && window.Fingerprint.WebApi) {
+            console.log("Fingerprint SDK loaded successfully");
+          } else {
+            console.error("SDK objects not found after loading scripts");
+            Swal.fire({
+              title: "SDK Not Available",
+              text: "The Fingerprint SDK could not be initialized. Please check your network connection and try again.",
+              icon: "error",
+            });
+          }
+        } catch (error) {
+          console.error("Failed to load Fingerprint SDK:", error);
+          Swal.fire({
+            title: "Failed to Load SDK",
+            text: "Could not load the fingerprint SDK scripts. Please check your network connection and try again.",
+            icon: "error",
+          });
+        } finally {
+          window.fingerprintScriptLoading = false;
+        }
+      };
+
+      loadSDK();
+    }
   }, []);
 
-  // Auto-detect most appropriate action based on time
-  useEffect(() => {
-    determineAction();
-  }, [currentTime, attendance]);
-
-  // Function to determine the most appropriate action
-  const determineAction = () => {
-    const hour = currentTime.getHours();
-
-    if (!attendance || !attendance.timeIn) {
-      setScanAction("clock-in");
-    } else if (
-      attendance.timeIn &&
-      !attendance.lunchStart &&
-      hour >= 11 &&
-      hour < 14
-    ) {
-      setScanAction("lunch-start");
-    } else if (
-      attendance.lunchStart &&
-      !attendance.lunchEnd &&
-      hour >= 12 &&
-      hour < 15
-    ) {
-      setScanAction("lunch-end");
-    } else if (attendance.timeIn && !attendance.timeOut && hour >= 15) {
-      setScanAction("clock-out");
-    } else if (attendance.timeOut) {
-      setScanAction("completed");
-    } else {
-      setScanAction("clock-in");
-    }
+  const resetScanState = () => {
+    setIsScanning(false);
+    setScanError(null);
+    reset(); // Reset attendance store
+    resetFingerprint(); // Reset fingerprint in the scanner
+    stopCapture(); // Stop any ongoing capture
   };
 
-  // Handle fingerprint scanning
   const handleScan = async () => {
-    if (isScanning || scanAction === "completed") return;
+    if (isScanning || isLoading) return;
 
+    if (!selectedReader) {
+      Swal.fire({
+        title: "No Reader Selected",
+        text: "No fingerprint reader selected. Please connect a reader and try again.",
+        icon: "error",
+      });
+      return;
+    }
+
+    await stopCapture();
     setIsScanning(true);
-    setScanResult(null);
+    setScanError(null);
 
     try {
-      // Show processing dialog
+      console.log("Starting fingerprint scan...");
+
+      // Show scanning prompt
       Swal.fire({
-        title: "Scanning Fingerprint",
-        text: "Please place your finger on the scanner...",
+        title: "Scanning...",
+        text: "Place your finger on the reader",
         allowOutsideClick: false,
+        showConfirmButton: false,
         didOpen: () => {
           Swal.showLoading();
         },
       });
 
-      // Scan fingerprint
-      const fingerprintData = await scanFingerprint();
-      if (!fingerprintData) {
-        throw new Error("Failed to capture fingerprint");
+      const timeoutId = setTimeout(() => {
+        if (isScanning) {
+          stopCapture();
+          setScanError("Scan failed to complete in time. Please try again.");
+          setIsScanning(false);
+          Swal.close();
+        }
+      }, 35000);
+
+      setScanTimeout(timeoutId);
+
+      const fingerprintData = await scanFingerprint(30000);
+      clearTimeout(timeoutId);
+
+      console.log(
+        "Scan completed successfully:",
+        fingerprintData ? "Data received" : "No data"
+      );
+
+      if (fingerprintData) {
+        const cleanedFingerprintData = fingerprintData.includes("base64")
+          ? fingerprintData.split(",")[1]
+          : fingerprintData;
+
+        Swal.update({
+          title: "Processing...",
+          text: "Identifying staff and recording attendance",
+        });
+
+        // Use the fingerprintAttendance method
+        await fingerprintAttendance(cleanedFingerprintData);
       }
-
-      // Extract base64 data if necessary
-      const cleanedFingerprint = fingerprintData.includes("base64")
-        ? fingerprintData.split(",")[1]
-        : fingerprintData;
-
-      // Update processing message
-      Swal.update({
-        title: "Processing",
-        text: "Identifying and recording attendance...",
-      });
-
-      // Choose API endpoint based on action
-      let response;
-      let actionDescription;
-
-      switch (scanAction) {
-        case "clock-in":
-          response = await clockIn({ fingerprint: cleanedFingerprint });
-          actionDescription = "Clock In";
-          break;
-
-        case "lunch-start":
-          response = await startLunch({ fingerprint: cleanedFingerprint });
-          actionDescription = "Start Lunch Break";
-          break;
-
-        case "lunch-end":
-          response = await endLunch({ fingerprint: cleanedFingerprint });
-          actionDescription = "End Lunch Break";
-          break;
-
-        case "clock-out":
-          response = await clockOut({ fingerprint: cleanedFingerprint });
-          actionDescription = "Clock Out";
-          break;
-
-        default:
-          throw new Error("Invalid action");
-      }
-
-      // Update attendance state with new data
-      if (response && response.data) {
-        setAttendance(response.data);
-      }
-
-      // Show success
-      Swal.fire({
-        icon: "success",
-        title: "Success!",
-        text: `${actionDescription} recorded successfully.`,
-        timer: 3000,
-        timerProgressBar: true,
-      });
-
-      // Set scan result for display
-      setScanResult({
-        success: true,
-        action: scanAction,
-        time: new Date(),
-        message: `${actionDescription} recorded successfully`,
-      });
     } catch (error) {
       console.error("Scan error:", error);
+      setScanError(error.message);
 
       Swal.fire({
-        icon: "error",
         title: "Scan Failed",
-        text: error.message || "Failed to process fingerprint",
-      });
-
-      setScanResult({
-        success: false,
-        action: scanAction,
-        time: new Date(),
-        message: error.message || "Failed to process fingerprint",
+        text: error.message,
+        icon: "error",
+      }).then(() => {
+        resetScanState();
       });
     } finally {
+      clearTimeout(scanTimeout);
+      setScanTimeout(null);
       setIsScanning(false);
     }
   };
 
-  // Render different action buttons based on scanAction
-  const renderActionButton = () => {
-    let icon,
-      text,
-      color,
-      disabled = false;
-
-    switch (scanAction) {
-      case "clock-in":
-        icon = <FaClock className="mr-2" />;
-        text = "Clock In";
-        color = "bg-green-600 hover:bg-green-700";
-        break;
-
-      case "lunch-start":
-        icon = <FaUtensils className="mr-2" />;
-        text = "Start Lunch";
-        color = "bg-yellow-600 hover:bg-yellow-700";
-        break;
-
-      case "lunch-end":
-        icon = <FaArrowRight className="mr-2" />;
-        text = "End Lunch";
-        color = "bg-yellow-600 hover:bg-yellow-700";
-        break;
-
-      case "clock-out":
-        icon = <FaArrowRight className="mr-2" />;
-        text = "Clock Out";
-        color = "bg-blue-600 hover:bg-blue-700";
-        break;
-
-      case "completed":
-        icon = <FaCheck className="mr-2" />;
-        text = "All Done For Today";
-        color = "bg-gray-400";
-        disabled = true;
-        break;
-
-      default:
-        icon = <FaClock className="mr-2" />;
-        text = "Scan Fingerprint";
-        color = "bg-blue-600 hover:bg-blue-700";
-    }
-
-    return (
-      <button
-        className={`${color} text-white px-6 py-3 rounded-lg font-medium flex items-center justify-center w-full ${
-          disabled ? "cursor-not-allowed" : ""
-        }`}
-        onClick={handleScan}
-        disabled={isScanning || disabled || readers.length === 0}
-      >
-        {isScanning ? (
-          <span className="flex items-center">
-            <svg
-              className="animate-spin -ml-1 mr-3 h-5 w-5 text-white"
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-            >
-              <circle
-                className="opacity-25"
-                cx="12"
-                cy="12"
-                r="10"
-                stroke="currentColor"
-                strokeWidth="4"
-              ></circle>
-              <path
-                className="opacity-75"
-                fill="currentColor"
-                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-              ></path>
-            </svg>
-            Processing...
-          </span>
-        ) : (
-          <>
-            {icon}
-            {text}
-          </>
-        )}
-      </button>
-    );
-  };
-
-  // Main render method
   return (
-    <div className="relative isolate bg-[#1b1b1b] px-6 pt-14 lg:px-16 min-h-lvh overflow-hidden">
+    <div className="relative isolate bg-[#1b1b1b] px-6 pt-14 lg:px-16 h-screen overflow-hidden">
       <div
         aria-hidden="true"
         className="absolute inset-x-0 -top-40 -z-10 transform-gpu overflow-hidden blur-3xl sm:-top-80"
@@ -280,95 +305,62 @@ const FingerprintAttendance = () => {
         />
       </div>
 
-      <div className="min-h-screen flex items-center justify-center p-4 my-4">
-        <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
-          <div className="bg-gradient-to-r from-blue-600 to-blue-800 rounded-t-lg p-6 text-white text-center">
-            <h1 className="text-2xl font-bold mb-2">Attendance System</h1>
-            <p className="text-lg mb-2">{format(currentTime, "h:mm:ss a")}</p>
-            <p>{format(currentTime, "EEEE, MMMM d, yyyy")}</p>
-          </div>
+      <div className="container max-w-md mx-auto pt-10 pb-8 px-4">
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <h1 className="text-2xl font-bold text-center mb-6">
+            Fingerprint Attendance
+          </h1>
 
-          <div className="p-6">
-            {/* Reader Status */}
-            <div
-              className={`rounded-lg p-4 mb-6 text-center ${
-                readers.length > 0
-                  ? "bg-green-100 text-green-800"
-                  : "bg-red-100 text-red-800"
-              }`}
-            >
-              {readers.length > 0 ? (
-                <>
-                  <p className="font-semibold">Fingerprint Reader Connected</p>
-                  <p className="text-sm">{selectedReader}</p>
-                </>
-              ) : (
-                <>
-                  <p className="font-semibold">
-                    No Fingerprint Reader Detected
-                  </p>
-                  <button
-                    className="mt-2 bg-blue-600 text-white px-3 py-1 rounded-md text-sm"
-                    onClick={refreshSdk}
-                  >
-                    Refresh Devices
-                  </button>
-                </>
-              )}
-            </div>
-
-            {/* Scan Result (if available) */}
-            {scanResult && (
-              <div
-                className={`rounded-lg p-4 mb-6 ${
-                  scanResult.success
-                    ? "bg-green-100 text-green-800"
-                    : "bg-red-100 text-red-800"
-                }`}
-              >
-                <p className="font-semibold">
-                  {scanResult.success ? "Success!" : "Error!"}
-                </p>
-                <p>{scanResult.message}</p>
-                {scanResult.success && (
-                  <p className="text-sm mt-1">
-                    {format(scanResult.time, "h:mm:ss a")}
-                  </p>
-                )}
+          <div className="mb-4">
+            {readers.length === 0 && (
+              <div className="bg-red-100 text-red-800 p-3 rounded-md mb-4">
+                No fingerprint reader detected. Please connect a reader.
               </div>
             )}
 
-            {/* Fingerprint Display */}
-            <div className="border-2 border-gray-300 rounded-lg p-4 mb-6 flex items-center justify-center h-48">
+            {readers.length > 0 && (
+              <div className="bg-green-100 text-green-800 p-3 rounded-md mb-4">
+                Using fingerprint reader: {selectedReader}
+              </div>
+            )}
+
+            <div className="border-2 border-gray-300 rounded-md flex items-center justify-center h-48 mb-6">
               {fingerprint ? (
                 <img
                   src={fingerprint}
                   alt="Fingerprint"
                   className="max-h-full"
                 />
+              ) : scanError ? (
+                <p className="text-center text-red-500">{scanError}</p>
+              ) : isLoading ? (
+                <p className="text-center text-blue-500">Processing...</p>
               ) : (
-                <div className="text-center text-gray-500">
-                  <FaFingerprint className="mx-auto text-4xl mb-2" />
-                  <p>{status}</p>
-                </div>
+                <p className="text-center text-gray-500">{status}</p>
               )}
             </div>
+          </div>
 
-            {/* Action Button */}
-            {renderActionButton()}
+          <div className="flex flex-col gap-3">
+            <button
+              type="button"
+              className="w-full justify-center rounded-md bg-blue-500 px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-blue-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:bg-blue-300"
+              onClick={handleScan}
+              disabled={isScanning || isLoading || readers.length === 0}
+            >
+              {isScanning || isLoading ? "Processing..." : "Scan Fingerprint"}
+            </button>
 
-            {/* Instructions */}
-            <div className="mt-6 text-sm text-gray-600">
-              <p className="font-semibold mb-1">Instructions:</p>
-              <ol className="list-decimal pl-5 space-y-1">
-                <li>
-                  Ensure your fingerprint has been registered in the system
-                </li>
-                <li>Place your finger on the reader when prompted</li>
-                <li>Hold until the scan completes</li>
-                <li>System will automatically detect the appropriate action</li>
-              </ol>
-            </div>
+            {readers.length === 0 && (
+              <button
+                type="button"
+                className="w-full justify-center rounded-md bg-green-500 px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-green-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green-600"
+                onClick={refreshSdk}
+                disabled={isScanning || isLoading}
+              >
+                Refresh Readers
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -376,4 +368,4 @@ const FingerprintAttendance = () => {
   );
 };
 
-export default FingerprintAttendance;
+export default Fingerprint;
