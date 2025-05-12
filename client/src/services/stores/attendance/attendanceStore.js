@@ -1,18 +1,16 @@
 import { create } from "zustand";
 import axiosTools from "../../utilities/axiosUtils";
 
-const useUsersStore = create((set, get) => ({
+const base = "attendance";
+const useAttendanceStore = create((set, get) => ({
   data: [],
-  user: {},
-  userFound: {},
   isLoading: false,
   message: "",
-  isMatched: false,
   isSuccess: false,
 
-  getUsers: async (token) => {
+  getAttendance: async (token) => {
     try {
-      const res = await axiosTools.getData("users/getAll", "", token);
+      const res = await axiosTools.getData(`${base}/getAll`, "", token);
 
       set({
         data: res.data,
@@ -26,36 +24,15 @@ const useUsersStore = create((set, get) => ({
     }
   },
 
-  signup: async (item) => {
-    set({ isLoading: true, message: "", isSuccess: false });
-    try {
-      const res = await axiosTools.register("auth/signup", { ...item });
-
-      set({
-        isSuccess: res.success,
-        isLoading: false,
-        message: "User created successfully!",
-        user: res.user,
-      });
-    } catch (error) {
-      set({
-        isLoading: false,
-        message: error || "eSignup: signup failed",
-        isSuccess: false,
-      });
-    }
-  },
-
   update: async (data, token) => {
     set({ isLoading: true, message: "", isSuccess: false });
     try {
-      const res = await axiosTools.updateData("users/update", data, token);
+      const res = await axiosTools.updateData(`${base}/update`, data, token);
 
       set({
         isSuccess: res.success,
         isLoading: false,
         message: "User updated successfully!",
-        user: res.user,
       });
     } catch (error) {
       set({
@@ -66,17 +43,16 @@ const useUsersStore = create((set, get) => ({
     }
   },
 
-  deleteUser: async (data, token) => {
+  delete: async (data, token) => {
     set({ isLoading: true, message: "", isSuccess: false });
 
     try {
-      const res = await axiosTools.deleteData("users/delete", data, token);
+      const res = await axiosTools.deleteData(`${base}/delete`, data, token);
 
       set({
         isSuccess: res.success,
         isLoading: false,
         message: "User deleted successfully!",
-        user: res.user,
       });
     } catch (error) {
       set({
@@ -87,11 +63,11 @@ const useUsersStore = create((set, get) => ({
     }
   },
 
-  enrollFingerPrint: async (data, token) => {
+  clockIn: async (data) => {
     set({ isLoading: true, message: "", isSuccess: false });
 
     try {
-      const res = await axiosTools.creteData("users/enroll", data, token);
+      const res = await axiosTools.saveData(`${base}/clock-in`, data, "");
 
       set({
         isSuccess: res.success,
@@ -107,33 +83,11 @@ const useUsersStore = create((set, get) => ({
     }
   },
 
-  matchFingerPrint: async (data) => {
-    set({ isLoading: true, message: "", isSuccess: false, isMatched: false });
-
-    try {
-      const res = await axiosTools.creteData("users/match", data);
-
-      set({
-        isSuccess: res.success,
-        isLoading: false,
-        message: res.message,
-        userFound: res.userData,
-        isMatched: res.matched,
-      });
-    } catch (error) {
-      set({
-        isLoading: false,
-        message: error,
-        isSuccess: false,
-      });
-    }
-  },
-
-  verifyFingerPrint: async (data) => {
+  clockOut: async (data) => {
     set({ isLoading: true, message: "", isSuccess: false });
 
     try {
-      const res = await axiosTools.creteData("users/verify", data);
+      const res = await axiosTools.saveData(`${base}/clock-out`, data);
 
       set({
         isSuccess: res.success,
@@ -154,9 +108,8 @@ const useUsersStore = create((set, get) => ({
       message: "",
       isSuccess: false,
       isLoading: false,
-      isMatched: false,
     });
   },
 }));
 
-export default useUsersStore;
+export default useAttendanceStore;

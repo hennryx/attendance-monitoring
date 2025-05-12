@@ -3,10 +3,13 @@ import { useFingerprintScanner } from "../../../services/utilities/FingerprintSc
 import useUsersStore from "../../../services/stores/users/usersStore";
 import { useNavigate } from "react-router-dom";
 import Swal from "sweetalert2";
+import useAttendanceStore from "../../../services/stores/attendance/attendanceStore";
 
 const Fingerprint = () => {
   const navigate = useNavigate();
-  const { matchFingerPrint, message, isSuccess, userFound } = useUsersStore();
+  const { matchFingerPrint, message, reset, isMatched, isSuccess, userFound } =
+    useUsersStore();
+  const { clockIn } = useAttendanceStore();
   const {
     fingerprint,
     status,
@@ -59,21 +62,72 @@ const Fingerprint = () => {
     }
 
     return () => {
-      if (timeoutId) clearTimeout(timeoutId);
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
     };
   }, [isInitialized, readers.length, refreshSdk, navigate]);
 
   useEffect(() => {
-    if (isSuccess && message) {
+    Swal.close();
+
+    if (isSuccess) {
+      if (userFound && userFound.name) {
+        Swal.fire({
+          title: "User Found",
+          text: `Are you ${userFound.name}?`,
+          icon: "question",
+          showCancelButton: true,
+          confirmButtonText: "Yes",
+          cancelButtonText: "No",
+        }).then((result) => {
+          if (result.isConfirmed) {
+            // fetch here in the time in
+            const data = {
+              staffId: userFound.staffId,
+            };
+            clockIn(data);
+
+            setScanError(null);
+            setIsScanning(false);
+            reset();
+            stopCapture();
+          } else {
+            // If the user clicks "No", reset the state to allow scanning again
+            setScanError(null);
+            setIsScanning(false);
+            reset();
+            stopCapture();
+          }
+        });
+      } else {
+        Swal.fire({
+          title: "Success!",
+          text: message,
+          icon: "success",
+          timer: 2000,
+          showConfirmButton: false,
+        });
+      }
+    }
+
+    if (!isSuccess && !isMatched && message) {
       Swal.fire({
-        title: "Success!",
-        text: message,
-        icon: "success",
-        timer: 2000,
-        showConfirmButton: false,
+        title: "No User Found",
+        text: "No matching fingerprint found in the system.",
+        icon: "error",
+        confirmButtonText: "Try Again",
+      }).then((result) => {
+        if (result.isConfirmed) {
+          setIsScanning(false);
+          setScanError(null);
+          reset();
+          stopCapture();
+        }
       });
     }
-  }, [isSuccess, message]);
+  }, [isSuccess, message, userFound]);
 
   useEffect(() => {
     if (!window.fingerprintScriptLoading) {
@@ -158,14 +212,13 @@ const Fingerprint = () => {
       });
       return;
     }
-
+    await stopCapture();
     setIsScanning(true);
     setScanError(null);
 
     try {
       console.log("Starting fingerprint scan...");
 
-      // Create a timeout to force stop scanning if it takes too long
       const timeoutId = setTimeout(() => {
         if (isScanning) {
           stopCapture();
@@ -189,16 +242,17 @@ const Fingerprint = () => {
           ? fingerprintData.split(",")[1]
           : fingerprintData;
 
-        await matchFingerPrint({
-          fingerPrint: cleanedFingerprintData,
+        Swal.fire({
+          title: "Scanning...",
+          text: "Matching fingerprint, please wait...",
+          allowOutsideClick: false,
+          didOpen: () => {
+            Swal.showLoading();
+          },
         });
 
-        Swal.fire({
-          title: "Success!",
-          text: "Fingerprint captured successfully.",
-          icon: "success",
-          timer: 1000,
-          showConfirmButton: false,
+        await matchFingerPrint({
+          fingerPrint: cleanedFingerprintData,
         });
       }
     } catch (error) {
@@ -214,6 +268,7 @@ const Fingerprint = () => {
       clearTimeout(scanTimeout);
       setScanTimeout(null);
       setIsScanning(false);
+      setScanError(null);
     }
   };
 

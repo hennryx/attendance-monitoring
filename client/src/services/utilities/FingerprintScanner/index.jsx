@@ -202,7 +202,13 @@ export const useFingerprintScanner = () => {
   // Scan fingerprint and return result with timeout
   const scanFingerprint = async (timeoutMs = 30000) => {
     return new Promise(async (resolve, reject) => {
+      // Declare timeoutId at the beginning of the function
+      let timeoutId = null;
+
       try {
+        setAcquisitionStarted(false);
+        setStatus("Ready to scan");
+
         if (!sdk) {
           const initialized = await initializeSdk();
           if (!initialized || !sdk) {
@@ -307,7 +313,8 @@ export const useFingerprintScanner = () => {
           return;
         }
 
-        const timeoutId = setTimeout(() => {
+        // Now assign the timeoutId
+        timeoutId = setTimeout(() => {
           stopCapture().then(() => {
             cleanup();
             reject(new Error("Fingerprint scan timed out. Please try again."));

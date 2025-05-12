@@ -1,9 +1,5 @@
-const FingerPrint = require("../../models/FingerPrint");
 const Users = require("../../models/Users");
-const {
-  processFingerprint,
-  compareFingerprints,
-} = require("../../utils/fingerprint");
+const fingerprintService = require("../../service/fingerprintService");
 
 exports.getAllUsers = async (req, res) => {
   try {
@@ -52,7 +48,7 @@ exports.updateUser = async (req, res) => {
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: err.message,
+      message: error.message,
     });
   }
 };
@@ -106,27 +102,16 @@ exports.enrollUSer = async (req, res) => {
       });
     }
 
-    // Call Python API for fingerprint enrollment
-    const response = await fetch(
-      "http://localhost:5500/api/fingerprint/enroll",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          staffId,
-          fingerPrint,
-        }),
-      }
-    );
+    // Use the fingerprint service to enroll the user
+    const enrollResult = await fingerprintService.enrollFingerprint({
+      staffId,
+      fingerPrint,
+    });
 
-    const result = await response.json();
-
-    if (!result.success) {
+    if (!enrollResult.success) {
       return res.status(400).json({
         success: false,
-        message: result.message || "User Fingerprint Enrollment failed!",
+        message: enrollResult.message || "User Fingerprint Enrollment failed!",
       });
     }
 
@@ -139,7 +124,9 @@ exports.enrollUSer = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: result.message || "User Fingerprint Enrolled successfully!",
+      message:
+        enrollResult.message || "User Fingerprint Enrolled successfully!",
+      quality_score: enrollResult.quality_score,
     });
   } catch (error) {
     res.status(500).json({
@@ -157,51 +144,41 @@ exports.matchFingerprint = async (req, res) => {
       return res.status(400).json({ error: "Missing fingerprint data" });
     }
 
-    console.log("Calling Python API for fingerprint matching...");
+    console.log("Matching fingerprint...");
 
-    // Call Python API for fingerprint matching
-    const response = await fetch(
-      "http://localhost:5500/api/fingerprint/match",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          fingerPrint,
-        }),
-      }
-    );
+    // Use the fingerprint service to match the fingerprint
+    const matchResult = await fingerprintService.matchFingerprint({
+      fingerPrint,
+    });
 
-    const result = await response.json();
+    if (matchResult.matched) {
+      const staffId = matchResult.staffId;
+      const user = await Users.findById(staffId);
 
-    const user = await Users.findById(result.staffId);
-    if (result.matched) {
-      console.log(user.firstname);
-
-      console.log(`Match found: ${result.staffId} with score ${result.score}`);
+      console.log(`Match found: ${staffId} with score ${matchResult.score}`);
 
       res.status(200).json({
         success: true,
         matched: true,
-        staffId: result.staffId,
+        staffId: staffId,
         message: "Success, match found!",
         userData: user
           ? {
               name: user.firstname,
               email: user.email,
+              staffId: user._id,
             }
-          : null,
-        score: result.score,
+          : matchResult.userData || null,
+        score: matchResult.score,
+        confidence: matchResult.confidence,
       });
     } else {
-      console.log(user?.firstname);
-      console.log(`No match found. Best score: ${result.bestScore}`);
+      console.log(`No match found. Best score: ${matchResult.bestScore}`);
       res.status(404).json({
         success: false,
         matched: false,
-        message: "No match found.",
-        bestScore: result.bestScore,
+        message: matchResult.message || "No match found.",
+        bestScore: matchResult.bestScore,
       });
     }
   } catch (error) {
@@ -214,7 +191,25 @@ exports.matchFingerprint = async (req, res) => {
   }
 };
 
-exports.verifyFingerprint = async (req, res) => {};
+exports.verifyFingerprint = async (req, res) => {
+  // This method could be implemented if needed
+};
+
+exports.updateFingerprints = async (req, res) => {
+  try {
+    // Update all fingerprint templates in the database
+    const result = await fingerprintService.updateAllTemplates();
+
+    res.status(200).json(result);
+  } catch (error) {
+    console.error("Error updating fingerprints:", error);
+    res.status(500).json({
+      success: false,
+      error: "Server error",
+      message: error.message,
+    });
+  }
+};
 
 exports.getDepartments = async (req, res) => {
   try {
