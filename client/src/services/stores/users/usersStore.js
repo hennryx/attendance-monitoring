@@ -4,6 +4,7 @@ import axiosTools from "../../utilities/axiosUtils";
 const useUsersStore = create((set, get) => ({
   data: [],
   user: {},
+  userFound: {},
   isLoading: false,
   message: "",
   isSuccess: false,
@@ -115,6 +116,7 @@ const useUsersStore = create((set, get) => ({
         isSuccess: res.success,
         isLoading: false,
         message: res.message,
+        userFound: res.userData,
       });
     } catch (error) {
       set({

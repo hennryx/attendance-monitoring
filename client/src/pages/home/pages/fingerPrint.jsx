@@ -6,7 +6,7 @@ import Swal from "sweetalert2";
 
 const Fingerprint = () => {
   const navigate = useNavigate();
-  const { matchFingerPrint, message, isSuccess } = useUsersStore();
+  const { matchFingerPrint, message, isSuccess, userFound } = useUsersStore();
   const {
     fingerprint,
     status,
@@ -29,7 +29,7 @@ const Fingerprint = () => {
         text: "The Fingerprint SDK is not available or scripts haven't loaded. Please refresh the page and try again.",
         icon: "error",
       }).then(() => {
-        navigate('/');
+        navigate("/");
       });
     }
   }, [navigate]);
@@ -51,7 +51,7 @@ const Fingerprint = () => {
             if (result.isConfirmed) {
               refreshSdk();
             } else {
-              navigate('/');
+              navigate("/");
             }
           });
         }
@@ -218,54 +218,75 @@ const Fingerprint = () => {
   };
 
   return (
-    <div className="container max-w-md mx-auto pt-10 pb-8 px-4">
-      <div className="bg-white rounded-lg shadow-md p-6">
-        <h1 className="text-2xl font-bold text-center mb-6">Fingerprint Attendance</h1>
-        
-        <div className="mb-4">
-          {readers.length === 0 && (
-            <div className="bg-red-100 text-red-800 p-3 rounded-md mb-4">
-              No fingerprint reader detected. Please connect a reader.
-            </div>
-          )}
+    <div className="relative isolate bg-[#1b1b1b] px-6 pt-14 lg:px-16 h-screen overflow-hidden">
+      <div
+        aria-hidden="true"
+        className="absolute inset-x-0 -top-40 -z-10 transform-gpu overflow-hidden blur-3xl sm:-top-80"
+      >
+        <div
+          style={{
+            clipPath:
+              "polygon(74.1% 44.1%, 100% 61.6%, 97.5% 26.9%, 85.5% 0.1%, 80.7% 2%, 72.5% 32.5%, 60.2% 62.4%, 52.4% 68.1%, 47.5% 58.3%, 45.2% 34.5%, 27.5% 76.7%, 0.1% 64.9%, 17.9% 100%, 27.6% 76.8%, 76.1% 97.7%, 74.1% 44.1%)",
+          }}
+          className="relative left-[calc(50%-11rem)] aspect-[1155/678] w-[36.125rem] -translate-x-1/2 rotate-[30deg] bg-gradient-to-tr from-[#ffffff] to-[#eceaff] opacity-30 sm:left-[calc(50%-30rem)] sm:w-[72.1875rem]"
+        />
+      </div>
 
-          {readers.length > 0 && (
-            <div className="bg-green-100 text-green-800 p-3 rounded-md mb-4">
-              Using fingerprint reader: {selectedReader}
-            </div>
-          )}
-          
-          <div className="border-2 border-gray-300 rounded-md flex items-center justify-center h-48 mb-6">
-            {fingerprint ? (
-              <img src={fingerprint} alt="Fingerprint" className="max-h-full" />
-            ) : scanError ? (
-              <p className="text-center text-red-500">{scanError}</p>
-            ) : (
-              <p className="text-center text-gray-500">{status}</p>
+      <div className="container max-w-md mx-auto pt-10 pb-8 px-4">
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <h1 className="text-2xl font-bold text-center mb-6">
+            Fingerprint Attendance
+          </h1>
+
+          <div className="mb-4">
+            {readers.length === 0 && (
+              <div className="bg-red-100 text-red-800 p-3 rounded-md mb-4">
+                No fingerprint reader detected. Please connect a reader.
+              </div>
             )}
-          </div>
-        </div>
-        
-        <div className="flex flex-col gap-3">
-          <button
-            type="button"
-            className="w-full justify-center rounded-md bg-blue-500 px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-blue-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:bg-blue-300"
-            onClick={handleScan}
-            disabled={isScanning || readers.length === 0}
-          >
-            {isScanning ? "Scanning..." : "Scan Fingerprint"}
-          </button>
 
-          {readers.length === 0 && (
+            {readers.length > 0 && (
+              <div className="bg-green-100 text-green-800 p-3 rounded-md mb-4">
+                Using fingerprint reader: {selectedReader}
+              </div>
+            )}
+
+            <div className="border-2 border-gray-300 rounded-md flex items-center justify-center h-48 mb-6">
+              {fingerprint ? (
+                <img
+                  src={fingerprint}
+                  alt="Fingerprint"
+                  className="max-h-full"
+                />
+              ) : scanError ? (
+                <p className="text-center text-red-500">{scanError}</p>
+              ) : (
+                <p className="text-center text-gray-500">{status}</p>
+              )}
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-3">
             <button
               type="button"
-              className="w-full justify-center rounded-md bg-green-500 px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-green-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green-600"
-              onClick={refreshSdk}
-              disabled={isScanning}
+              className="w-full justify-center rounded-md bg-blue-500 px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-blue-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:bg-blue-300"
+              onClick={handleScan}
+              disabled={isScanning || readers.length === 0}
             >
-              Refresh Readers
+              {isScanning ? "Scanning..." : "Scan Fingerprint"}
             </button>
-          )}
+
+            {readers.length === 0 && (
+              <button
+                type="button"
+                className="w-full justify-center rounded-md bg-green-500 px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-green-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green-600"
+                onClick={refreshSdk}
+                disabled={isScanning}
+              >
+                Refresh Readers
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>

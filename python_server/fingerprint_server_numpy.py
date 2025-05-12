@@ -448,7 +448,6 @@ def enroll_fingerprint():
                 {"$set": {
                     "template": template,
                     "original": fingerprint_data,
-                    "updatedAt": np.datetime64('now')
                 }}
             )
             message = "Fingerprint updated successfully!"
@@ -458,8 +457,6 @@ def enroll_fingerprint():
                 "staffId": staff_id_obj,
                 "template": template,
                 "original": fingerprint_data,
-                "createdAt": np.datetime64('now'),
-                "updatedAt": np.datetime64('now')
             })
             message = "Fingerprint enrolled successfully!"
         
