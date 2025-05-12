@@ -70,6 +70,7 @@ export const FingerprintModal = ({
               minutiaeCount={qualityMetrics.minutiaeCount}
               keypointCount={qualityMetrics.keypointCount}
               enrollmentStatus={enrollmentDetails?.enrollmentStatus}
+              // eslint-disable-next-line no-undef
               enrollmentCount={enrolledCount}
               minEnrollments={minEnrollments}
               maxEnrollments={maxEnrollments}
