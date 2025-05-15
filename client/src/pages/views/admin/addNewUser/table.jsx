@@ -118,10 +118,10 @@ const Table = ({ data, toggleAdd, handleUpdate }) => {
   };
 
   // Handle successful fingerprint capture
-  const handleFingerprintCapture = async (data) => {
+  const handleFingerprintCapture = async (formData) => {
     try {
-      console.log("Fingerprint Captured:", data);
-      await enrollFingerPrint(data, token);
+      console.log("Fingerprint Captured - using FormData");
+      await enrollFingerPrint(formData, token);
 
       Swal.fire({
         title: "Fingerprint Registration Complete",

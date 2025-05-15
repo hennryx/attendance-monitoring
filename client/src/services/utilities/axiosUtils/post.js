@@ -1,3 +1,4 @@
+// client/src/services/utilities/axiosUtils/post.js
 import axios from "axios";
 import { TOKENHEADER } from "..";
 
@@ -7,8 +8,8 @@ const saveData = async (url, formData, token) => {
       Authorization: `${TOKENHEADER} ${token}`,
     };
 
-    if (formData instanceof FormData) {
-      headers["Content-Type"] = "multipart/form-data";
+    if (!(formData instanceof FormData)) {
+      headers["Content-Type"] = "application/json";
     }
 
     const response = await axios.post(url, formData, { headers });

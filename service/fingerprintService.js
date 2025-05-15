@@ -99,6 +99,99 @@ class FingerprintService {
   }
 
   /**
+   * Process and enroll a new fingerprint with multiple uploaded files
+   * @param {Object} data Object containing staffId, email and fingerprints array of file paths
+   * @returns {Promise<Object>} Result of the enrollment
+   */
+  async enrollFingerprintFromFiles(data) {
+    try {
+      const { staffId, fingerprints, email } = data;
+
+      if (
+        !staffId ||
+        !fingerprints ||
+        !Array.isArray(fingerprints) ||
+        fingerprints.length === 0
+      ) {
+        throw new Error("Missing staffId or fingerprint data");
+      }
+
+      if (fingerprints.length < 2) {
+        throw new Error(
+          "At least 2 fingerprint scans are required for registration"
+        );
+      }
+
+      // Create an array of file paths to send to the Python server
+      const filePaths = fingerprints.map((fp) => fp.path);
+
+      // Process the fingerprints with the Python server
+      const processResponse = await axios.post(
+        `${FINGERPRINT_SERVER_URL}/api/fingerprint/process-multiple`,
+        {
+          staffId,
+          email,
+          filePaths,
+        }
+      );
+
+      if (!processResponse.data.success) {
+        throw new Error(
+          processResponse.data.message || "Failed to process fingerprints"
+        );
+      }
+
+      // Extract data from response
+      const { template, original_template, quality_score, saved_files } =
+        processResponse.data;
+
+      // Check if staff ID already exists in the fingerprint collection
+      let existingRecord = await FingerPrint.findOne({ staffId });
+
+      if (existingRecord) {
+        // Update existing record
+        existingRecord.template = template;
+        existingRecord.original_template = original_template;
+        existingRecord.quality_score = quality_score;
+        existingRecord.file_paths =
+          saved_files || fingerprints.map((fp) => fp.path);
+        existingRecord.updated_at = new Date();
+
+        await existingRecord.save();
+        return {
+          success: true,
+          message: "Fingerprint updated successfully!",
+          quality_score: quality_score,
+        };
+      } else {
+        // Create new record
+        const newFingerprint = new FingerPrint({
+          staffId,
+          template,
+          original_template,
+          quality_score,
+          file_paths: saved_files || fingerprints.map((fp) => fp.path),
+          scan_count: fingerprints.length,
+          enrolled_at: new Date(),
+        });
+
+        await newFingerprint.save();
+        return {
+          success: true,
+          message: "Fingerprint enrolled successfully!",
+          quality_score: quality_score,
+        };
+      }
+    } catch (error) {
+      console.error("Fingerprint enrollment error:", error);
+      return {
+        success: false,
+        message: error.message || "Failed to enroll fingerprint",
+      };
+    }
+  }
+
+  /**
    * Process a single fingerprint for initial analysis without saving
    * @param {Object} data Object containing fingerPrint base64 data
    * @returns {Promise<Object>} Result of the processing

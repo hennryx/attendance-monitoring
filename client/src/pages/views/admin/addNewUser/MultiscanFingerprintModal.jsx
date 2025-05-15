@@ -1,3 +1,4 @@
+// client/src/pages/views/admin/addNewUser/MultiscanFingerprintModal.jsx
 import { useEffect, useState } from "react";
 import { useFingerprintScanner } from "../../../../services/utilities/FingerprintScanner";
 import Swal from "sweetalert2";
@@ -28,8 +29,10 @@ export const MultiFingerprintModal = ({
   const [scanTimeout, setScanTimeout] = useState(null);
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [capturedSamples, setCapturedSamples] = useState([]);
+  const [fingerprintFiles, setFingerprintFiles] = useState([]);
   const [fingerprintQuality, setFingerprintQuality] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [isCoolingDown, setIsCoolingDown] = useState(false);
 
   const scanSteps = [
     {
@@ -97,12 +100,53 @@ export const MultiFingerprintModal = ({
   const resetScanState = () => {
     setIsScanning(false);
     setScanError(null);
-    resetFingerprint();
-    stopCapture();
+    setIsCoolingDown(true);
+
+    stopCapture()
+      .then(() => {
+        resetFingerprint();
+
+        setTimeout(() => {
+          setIsCoolingDown(false);
+        }, 1500); // 1.5 seconds cooldown
+      })
+      .catch((err) => {
+        console.error("Error stopping capture:", err);
+        setTimeout(() => {
+          setIsCoolingDown(false);
+        }, 3000); // 3 seconds cooldown if error
+      });
+  };
+
+  // Helper function to convert base64 to File object
+  const base64ToFile = (base64String, filename) => {
+    // Split the base64 string to get the actual data part
+    const dataArr = base64String.split(",");
+    const mime = dataArr[0].match(/:(.*?);/)[1];
+    const bstr = atob(dataArr[1] || base64String);
+    let n = bstr.length;
+    const u8arr = new Uint8Array(n);
+
+    while (n--) {
+      u8arr[n] = bstr.charCodeAt(n);
+    }
+
+    return new File([u8arr], filename, { type: mime });
   };
 
   const handleScan = async () => {
-    if (isScanning) return;
+    if (isScanning || isCoolingDown) {
+      if (isCoolingDown) {
+        Swal.fire({
+          title: "Scanner Resetting",
+          text: "Please wait a moment before starting another scan",
+          icon: "info",
+          timer: 1500,
+          showConfirmButton: false,
+        });
+      }
+      return;
+    }
 
     if (!selectedReader) {
       Swal.fire({
@@ -155,6 +199,11 @@ export const MultiFingerprintModal = ({
         // Add to captured samples
         setCapturedSamples([...capturedSamples, fingerprintData]);
 
+        // Convert base64 to File and add to files array
+        const filename = `fingerprint-${currentStepIndex + 1}.png`;
+        const file = base64ToFile(fingerprintData, filename);
+        setFingerprintFiles([...fingerprintFiles, file]);
+
         // Calculate simple quality score based on contrast and clarity
         const quality = Math.random() * 0.4 + 0.6; // Just a placeholder, real quality would be computed by the server
         setFingerprintQuality(quality);
@@ -180,9 +229,9 @@ export const MultiFingerprintModal = ({
             showConfirmButton: false,
           }).then(() => {
             setCurrentStepIndex(currentStepIndex + 1);
+            resetScanState();
           });
         }
-        resetScanState();
       }
     } catch (error) {
       console.error("Scan error:", error);
@@ -203,7 +252,7 @@ export const MultiFingerprintModal = ({
   };
 
   const handleSaveFingerprints = async () => {
-    if (capturedSamples.length < 2) {
+    if (fingerprintFiles.length < 2) {
       Swal.fire({
         title: "Not Enough Samples",
         text: "Please complete at least 2 fingerprint scans before saving.",
@@ -225,19 +274,21 @@ export const MultiFingerprintModal = ({
         },
       });
 
-      // Clean up fingerprint data
-      const cleanedSamples = capturedSamples.map((sample) => {
-        return sample.includes("base64")
-          ? sample
-          : `data:image/png;base64,${sample}`;
+      // Create FormData for file upload
+      const formData = new FormData();
+      formData.append("staffId", staffId);
+      if (staffEmail) formData.append("email", staffEmail);
+
+      // Add all fingerprint files
+      fingerprintFiles.forEach((file) => {
+        formData.append("fingerprintFiles", file);
       });
 
-      // Call the capture callback
-      await onCapture({
-        staffId,
-        email: staffEmail,
-        fingerprints: cleanedSamples,
-      });
+      // For backward compatibility, also include the base64 data
+      formData.append("fingerprints", JSON.stringify(capturedSamples));
+
+      // Call the capture callback with FormData
+      await onCapture(formData);
 
       // Success message
       Swal.fire({
@@ -271,32 +322,12 @@ export const MultiFingerprintModal = ({
     }).then((result) => {
       if (result.isConfirmed) {
         setCapturedSamples([]);
+        setFingerprintFiles([]);
         setCurrentStepIndex(0);
         setFingerprintQuality(null);
         resetScanState();
       }
     });
-  };
-
-  const handleCancel = () => {
-    if (capturedSamples.length > 0) {
-      Swal.fire({
-        title: "Discard Scans?",
-        text: "You have captured fingerprint scans. Are you sure you want to discard them?",
-        icon: "warning",
-        showCancelButton: true,
-        confirmButtonText: "Yes, discard",
-        cancelButtonText: "No, keep scanning",
-      }).then((result) => {
-        if (result.isConfirmed) {
-          resetScanState();
-          onClose();
-        }
-      });
-    } else {
-      resetScanState();
-      onClose();
-    }
   };
 
   if (!isOpen) return null;
@@ -311,13 +342,14 @@ export const MultiFingerprintModal = ({
           <button
             className="btn btn-ghost bg-white text-black"
             type="button"
-            onClick={handleCancel}
+            onClick={onClose}
             disabled={isScanning || saving}
           >
             <HiOutlineX size={20} />
           </button>
         </div>
 
+        {/* Content remains the same as your original component */}
         <div className="mb-6">
           <div className="flex items-center mb-4">
             <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden">
@@ -449,10 +481,16 @@ export const MultiFingerprintModal = ({
                 type="button"
                 className="btn bg-blue-600 hover:bg-blue-700 text-white"
                 onClick={handleScan}
-                disabled={isScanning || saving || readers.length === 0}
+                disabled={
+                  isScanning || saving || readers.length === 0 || isCoolingDown
+                }
               >
                 <FaFingerprint className="mr-1" />{" "}
-                {isScanning ? "Scanning..." : "Scan Fingerprint"}
+                {isScanning
+                  ? "Scanning..."
+                  : isCoolingDown
+                  ? "Resetting..."
+                  : "Scan Fingerprint"}
               </button>
             )}
           </div>

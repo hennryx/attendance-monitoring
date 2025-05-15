@@ -92,7 +92,8 @@ exports.deleteUser = async (req, res) => {
 
 exports.enrollUSer = async (req, res) => {
   try {
-    const { staffId, fingerprints, email } = req.body;
+    const { staffId, email } = req.body;
+    const files = req.files; // This will contain the uploaded fingerprint files
 
     if (!staffId) {
       return res.status(400).json({
@@ -102,11 +103,7 @@ exports.enrollUSer = async (req, res) => {
       });
     }
 
-    if (
-      !fingerprints ||
-      !Array.isArray(fingerprints) ||
-      fingerprints.length < 2
-    ) {
+    if (!files || files.length < 2) {
       return res.status(400).json({
         success: false,
         error: "Invalid Fingerprints",
@@ -123,8 +120,16 @@ exports.enrollUSer = async (req, res) => {
       }
     }
 
-    // Use the fingerprint service to enroll using multiple scans
-    const enrollResult = await fingerprintService.enrollFingerprint({
+    // Process the uploaded fingerprint images
+    const fingerprints = files.map((file) => {
+      return {
+        path: file.path,
+        filename: file.filename,
+      };
+    });
+
+    // Pass the file paths to the fingerprint service instead of base64 data
+    const enrollResult = await fingerprintService.enrollFingerprintFromFiles({
       staffId,
       fingerprints,
       email: userEmail,
@@ -306,7 +311,6 @@ exports.getDepartments = async (req, res) => {
   }
 };
 
-// Update user profile
 exports.updateProfile = async (req, res) => {
   try {
     const userId = req.user._id;
@@ -330,7 +334,7 @@ exports.updateProfile = async (req, res) => {
     if (email && email !== user.email) {
       // Check if new email already exists
       const existingUser = await Users.findOne({ email });
-      if (existingUser) {
+      if (existingUser && existingUser._id.toString() !== userId.toString()) {
         return res.status(400).json({
           success: false,
           message: "Email already in use",
@@ -340,21 +344,22 @@ exports.updateProfile = async (req, res) => {
       user.email = email;
     }
 
-    // Handle profile image upload
     if (req.file) {
-      // Delete previous profile image if exists
       if (user.profileImage) {
-        const oldImagePath = path.join(
-          __dirname,
-          "../../assets/profiles",
-          user.profileImage
-        );
-        if (fs.existsSync(oldImagePath)) {
-          fs.unlinkSync(oldImagePath);
+        try {
+          const oldImagePath = path.join(
+            __dirname,
+            "../../assets/profiles",
+            user.profileImage
+          );
+          if (fs.existsSync(oldImagePath)) {
+            fs.unlinkSync(oldImagePath);
+          }
+        } catch (fileError) {
+          console.error("Error deleting old profile image:", fileError);
         }
       }
 
-      // Save new profile image
       user.profileImage = req.file.filename;
     }
 
@@ -374,9 +379,10 @@ exports.updateProfile = async (req, res) => {
       },
     });
   } catch (error) {
+    console.error("Profile update error:", error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message || "Failed to update profile",
     });
   }
 };
