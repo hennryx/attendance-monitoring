@@ -1,7 +1,7 @@
 /* eslint-disable no-useless-catch */
 import axiosTools from "./axiosUtils";
 
-export const uploadFile = async (endpoint, formData, token, options = {}) => {
+export const uploadFile = async (endpoint, formData, token) => {
   try {
     if (!(formData instanceof FormData)) {
       const newFormData = new FormData();

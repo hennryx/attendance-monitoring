@@ -15,7 +15,6 @@ import useAttendanceStore from "../../../services/stores/attendance/attendanceSt
 const FingerprintAttendance = () => {
   const navigate = useNavigate();
   const {
-    fingerprintAttendance,
     matchFingerprint,
     recordAttendance,
     message,
@@ -48,7 +47,6 @@ const FingerprintAttendance = () => {
     useState(false);
   const [attendanceHistory, setAttendanceHistory] = useState([]);
 
-  // Simulated attendance history for display
   const mockHistory = [
     { date: new Date(), type: "in", name: "John Doe", department: "IT" },
     {
@@ -78,7 +76,6 @@ const FingerprintAttendance = () => {
   ];
 
   useEffect(() => {
-    // In a real application, fetch the recent attendance history
     setAttendanceHistory(mockHistory);
   }, []);
 
@@ -126,10 +123,8 @@ const FingerprintAttendance = () => {
     };
   }, [isInitialized, readers.length, refreshSdk, navigate]);
 
-  // Handle attendance results
   useEffect(() => {
     if (isSuccess && staffData) {
-      // Define action text and icon based on attendanceType
       let actionText, actionIcon;
       switch (attendanceType) {
         case "in":
@@ -155,7 +150,6 @@ const FingerprintAttendance = () => {
           actionIcon = <FaCheckCircle className="text-green-500 text-4xl" />;
       }
 
-      // Update the attendance history
       setAttendanceHistory([
         {
           date: new Date(),
@@ -163,7 +157,7 @@ const FingerprintAttendance = () => {
           name: staffData.name || "Unknown Staff",
           department: staffData.department || "",
         },
-        ...attendanceHistory.slice(0, 4), // Keep only the latest 5 entries
+        ...attendanceHistory.slice(0, 4),
       ]);
 
       Swal.fire({
@@ -188,7 +182,6 @@ const FingerprintAttendance = () => {
         timerProgressBar: true,
         showConfirmButton: false,
       }).then(() => {
-        // Reset after displaying success message
         resetScanState();
       });
 
@@ -209,9 +202,9 @@ const FingerprintAttendance = () => {
   const resetScanState = () => {
     setIsScanning(false);
     setScanError(null);
-    reset(); // Reset attendance store
-    resetFingerprint(); // Reset fingerprint in the scanner
-    stopCapture(); // Stop any ongoing capture
+    reset();
+    resetFingerprint();
+    stopCapture();
   };
 
   const handleScan = async () => {
@@ -233,7 +226,6 @@ const FingerprintAttendance = () => {
     try {
       console.log("Starting fingerprint scan...");
 
-      // Show scanning prompt
       Swal.fire({
         title: "Scanning...",
         text: "Place your finger on the reader",
@@ -273,7 +265,6 @@ const FingerprintAttendance = () => {
           text: "Identifying staff...",
         });
 
-        // First, match the fingerprint to identify the user
         await matchFingerprint(cleanedFingerprintData);
       }
     } catch (error) {
@@ -296,7 +287,6 @@ const FingerprintAttendance = () => {
 
   useEffect(() => {
     if (isMatched && matchedUser && message !== "") {
-      // Ask for confirmation before recording attendance
       Swal.fire({
         title: "Confirm Identity",
         html: `
@@ -328,7 +318,6 @@ const FingerprintAttendance = () => {
         }
       });
     } else if (!isMatched && message !== "") {
-      // No match found
       Swal.fire({
         title: "No Match Found",
         text:
@@ -342,7 +331,6 @@ const FingerprintAttendance = () => {
     }
   }, [matchedUser, isMatched, message]);
 
-  // Helper function to get icon for attendance type
   const getAttendanceIcon = (type) => {
     switch (type) {
       case "in":
@@ -430,7 +418,7 @@ const FingerprintAttendance = () => {
               <div className="grid grid-cols-2 gap-4">
                 <button
                   type="button"
-                  className="w-full justify-center rounded-md bg-blue-600 px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:bg-blue-300 flex items-center justify-center"
+                  className="w-full rounded-md bg-blue-600 px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:bg-blue-300 flex items-center justify-center"
                   onClick={handleScan}
                   disabled={isScanning || isLoading || readers.length === 0}
                 >
@@ -442,7 +430,7 @@ const FingerprintAttendance = () => {
 
                 <button
                   type="button"
-                  className="w-full justify-center rounded-md bg-gray-200 px-4 py-3 text-sm font-semibold text-gray-800 shadow-sm hover:bg-gray-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-600 disabled:bg-gray-100 flex items-center justify-center"
+                  className="w-full rounded-md bg-gray-200 px-4 py-3 text-sm font-semibold text-gray-800 shadow-sm hover:bg-gray-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-600 disabled:bg-gray-100 flex items-center justify-center"
                   onClick={refreshSdk}
                   disabled={isScanning || isLoading}
                 >
