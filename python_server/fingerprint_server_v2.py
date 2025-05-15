@@ -8,7 +8,16 @@ from PIL import Image
 import os
 import json
 import time
-from scipy.spatial.distance import hamming, euclidean
+import threading
+import multiprocessing
+from scipy.ndimage import gaussian_filter, median_filter
+from scipy.spatial.distance import hamming
+from skimage.morphology import skeletonize
+import math
+import traceback
+
+# For parallel processing
+NUM_CORES = max(1, multiprocessing.cpu_count() - 1)
 
 app = Flask(__name__)
 CORS(app)
@@ -24,6 +33,12 @@ logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# Define constants for the algorithm
+MIN_MATCH_COUNT = 10
+MATCH_THRESHOLD = 0.5
+MINUTIAE_DISTANCE_THRESHOLD = 15
+QUALITY_THRESHOLD = 40
+
 def base64_to_image(base64_string):
     """Convert base64 string to OpenCV image"""
     try:
@@ -37,148 +52,530 @@ def base64_to_image(base64_string):
         logger.error(f"Error converting base64 to image: {e}")
         raise
 
-def enhance_fingerprint(image):
-    """Enhanced fingerprint preprocessing for better feature extraction"""
-    # Convert to grayscale if needed
-    if len(image.shape) == 3:
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    else:
-        gray = image
+class FingerprintEnhancer:
+    """Advanced fingerprint enhancement class"""
     
-    # Normalize
-    normalized = cv2.normalize(gray, None, 0, 255, cv2.NORM_MINMAX)
-    
-    # Apply CLAHE (Contrast Limited Adaptive Histogram Equalization)
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
-    enhanced = clahe.apply(normalized)
-    
-    # Noise removal
-    denoised = cv2.fastNlMeansDenoising(enhanced, None, 10, 7, 21)
-    
-    # Binarization using adaptive thresholding
-    binary = cv2.adaptiveThreshold(denoised, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-                                  cv2.THRESH_BINARY_INV, 11, 2)
-    
-    # Morphological operations to improve ridge structure
-    kernel = np.ones((3,3), np.uint8)
-    processed = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
-    
-    # Thinning (skeletonization) for better minutiae extraction
-    skeleton = get_skeleton(processed)
-    
-    return {
-        'gray': gray,
-        'enhanced': enhanced,
-        'binary': binary,
-        'skeleton': skeleton,
-        'processed': processed
-    }
-
-def get_skeleton(binary):
-    """Extract skeleton from binary image"""
-    # Create an empty skeleton
-    skeleton = np.zeros(binary.shape, np.uint8)
-    
-    # Get a copy of the image
-    img = binary.copy()
-    
-    # Get a kernel for morphological operations
-    kernel = cv2.getStructuringElement(cv2.MORPH_CROSS, (3,3))
-    
-    # Iterate until the image is fully eroded
-    while True:
-        # Step 1: Open the image (erode then dilate)
-        eroded = cv2.erode(img, kernel)
-        temp = cv2.dilate(eroded, kernel)
-        
-        # Step 2: Subtract temp from the original image
-        temp = cv2.subtract(img, temp)
-        
-        # Step 3: Add the result to the skeleton
-        skeleton = cv2.bitwise_or(skeleton, temp)
-        
-        # Step 4: Set the eroded image for the next iteration
-        img = eroded.copy()
-        
-        # Step 5: If there are no white pixels left, then we're done
-        if cv2.countNonZero(img) == 0:
-            break
-    
-    return skeleton
-
-def extract_minutiae_points(processed_image):
-    """Extract minutiae points using Harris corner detector"""
-    # Extract key points using Harris corner detection
-    corner_response = cv2.cornerHarris(processed_image, blockSize=2, ksize=3, k=0.04)
-    
-    # Threshold for corner response
-    threshold = 0.01 * corner_response.max()
-    corners = np.where(corner_response > threshold)
-    
-    # Convert to keypoints format
-    keypoints = [cv2.KeyPoint(float(x), float(y), 1) for y, x in zip(corners[0], corners[1])]
-    
-    # Filter keypoints to avoid redundant ones
-    filtered_keypoints = []
-    min_distance = 10  # Minimum distance between keypoints
-    
-    for kp in keypoints:
-        if all(np.sqrt((kp.pt[0] - existing_kp.pt[0])**2 + 
-                      (kp.pt[1] - existing_kp.pt[1])**2) > min_distance 
-               for existing_kp in filtered_keypoints):
-            filtered_keypoints.append(kp)
-    
-    return filtered_keypoints
-
-def extract_descriptors(processed_image, keypoints):
-    """Extract feature descriptors using ORB"""
-    # Create ORB descriptor
-    orb = cv2.ORB_create(nfeatures=1500)
-    
-    # Compute descriptors
-    _, descriptors = orb.compute(processed_image, keypoints)
-    
-    return descriptors
-
-def match_fingerprints(descriptors1, descriptors2):
-    """Match fingerprint descriptors using Brute-Force matcher with Hamming distance"""
-    # Check if descriptors are valid
-    if descriptors1 is None or descriptors2 is None:
-        return 0, []
-    if len(descriptors1) == 0 or len(descriptors2) == 0:
-        return 0, []
-    
-    # Create BF matcher with Hamming distance
-    bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
-    
-    # Match descriptors
-    matches = bf.match(descriptors1, descriptors2)
-    
-    # Sort matches by distance
-    matches = sorted(matches, key=lambda x: x.distance)
-    
-    # Calculate match score
-    if len(matches) > 0:
-        # Use only good matches (low distance)
-        max_distance = 100  # Maximum distance to consider
-        good_matches = [m for m in matches if m.distance < max_distance]
-        
-        # Calculate matching score based on ratio of good matches to total keypoints
-        match_ratio = len(good_matches) / min(len(descriptors1), len(descriptors2))
-        
-        # Normalize distances to 0-1 range (lower distances are better)
-        if good_matches:
-            avg_distance = np.mean([m.distance for m in good_matches])
-            distance_score = max(0, 1 - (avg_distance / max_distance))
+    @staticmethod
+    def enhance(img):
+        """Multi-stage fingerprint enhancement"""
+        # Start with grayscale conversion
+        if len(img.shape) == 3:
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         else:
-            distance_score = 0
+            gray = img.copy()
+            
+        # Resize if needed for consistent processing
+        height, width = gray.shape
+        if width > 600 or height > 800:
+            scale = min(600 / width, 800 / height)
+            gray = cv2.resize(gray, None, fx=scale, fy=scale)
         
-        # Combined score (weighted average of ratio and distance score)
-        match_score = 0.6 * match_ratio + 0.4 * distance_score
+        # 1. Normalization
+        normalized = cv2.normalize(gray, None, 0, 255, cv2.NORM_MINMAX)
         
-        return match_score, matches
-    else:
-        return 0, []
+        # 2. CLAHE for improving contrast in fingerprint ridges
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+        enhanced = clahe.apply(normalized)
+        
+        # 3. Noise removal with Gaussian and median hybrid filtering
+        denoised = median_filter(enhanced, size=3)
+        denoised = gaussian_filter(denoised, sigma=1)
+        denoised = np.array(denoised, dtype=np.uint8)
+        
+        # 4. Adaptive thresholding for binarization
+        binary = cv2.adaptiveThreshold(denoised, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+                                      cv2.THRESH_BINARY_INV, 11, 2)
+        
+        # 5. Morphological operations to improve ridge structure
+        kernel = np.ones((3,3), np.uint8)
+        binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
+        binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel)
+        
+        # 6. Ridge orientation field estimation (for quality assessment)
+        # This helps in determining the local ridge orientation
+        block_size = 16
+        h, w = binary.shape
+        orientation_map = np.zeros((h // block_size, w // block_size), dtype=np.float32)
+        
+        for i in range(0, h - block_size, block_size):
+            for j in range(0, w - block_size, block_size):
+                block = binary[i:i+block_size, j:j+block_size]
+                if np.sum(block) > 0:  # Only process blocks with ridges
+                    # Calculate gradient
+                    gx = cv2.Sobel(block, cv2.CV_32F, 1, 0, ksize=3)
+                    gy = cv2.Sobel(block, cv2.CV_32F, 0, 1, ksize=3)
+                    
+                    # Calculate orientation
+                    gxx = np.sum(gx * gx)
+                    gyy = np.sum(gy * gy)
+                    gxy = np.sum(gx * gy)
+                    
+                    orientation = 0.5 * np.arctan2(2 * gxy, gxx - gyy)
+                    orientation_map[i // block_size, j // block_size] = orientation
+        
+        # 7. Skeletonization to thin the ridges to 1-pixel width
+        # This is important for accurate minutiae extraction
+        skeleton = skeletonize(binary / 255).astype(np.uint8) * 255
+        
+        # Return all stages for further processing
+        return {
+            'gray': gray,
+            'normalized': normalized,
+            'enhanced': enhanced,
+            'denoised': denoised,
+            'binary': binary,
+            'skeleton': skeleton,
+            'orientation_map': orientation_map
+        }
+    
+    @staticmethod
+    def orientation_field(binary, block_size=16):
+        """Calculate orientation field of fingerprint"""
+        h, w = binary.shape
+        orientation_img = np.zeros((h, w, 3), dtype=np.uint8)
+        orientation_img.fill(255)  # White background
+        
+        # For each block, calculate orientation
+        for i in range(0, h - block_size, block_size):
+            for j in range(0, w - block_size, block_size):
+                block = binary[i:i+block_size, j:j+block_size]
+                
+                # Calculate gradient
+                gx = cv2.Sobel(block, cv2.CV_32F, 1, 0)
+                gy = cv2.Sobel(block, cv2.CV_32F, 0, 1)
+                
+                # Calculate orientation
+                gxx = np.sum(gx * gx)
+                gyy = np.sum(gy * gy)
+                gxy = np.sum(gx * gy)
+                
+                # Avoid division by zero
+                if gxx == gyy and gxy == 0:
+                    continue
+                    
+                orientation = 0.5 * np.arctan2(2 * gxy, gxx - gyy)
+                
+                # Draw orientation line
+                center_x = j + block_size // 2
+                center_y = i + block_size // 2
+                length = block_size // 2
+                cos_o = np.cos(orientation)
+                sin_o = np.sin(orientation)
+                
+                p1_x = int(center_x - length * cos_o)
+                p1_y = int(center_y - length * sin_o)
+                p2_x = int(center_x + length * cos_o)
+                p2_y = int(center_y + length * sin_o)
+                
+                cv2.line(orientation_img, (p1_x, p1_y), (p2_x, p2_y), (0, 0, 255), 1)
+                
+        return orientation_img
+
+class MinutiaeExtractor:
+    """Minutiae extraction class using crossing number method"""
+    
+    @staticmethod
+    def extract(skeleton):
+        """Extract minutiae points from skeleton image"""
+        minutiae = []
+        minutiae_image = cv2.cvtColor(skeleton, cv2.COLOR_GRAY2BGR)
+        
+        # Crossing Number method
+        rows, cols = skeleton.shape
+        
+        # Padding for border analysis
+        padded = np.pad(skeleton, ((1, 1), (1, 1)), mode='constant')
+        
+        for i in range(1, rows + 1):
+            for j in range(1, cols + 1):
+                if padded[i, j] == 255:  # Foreground pixel
+                    # Get 8 neighbors
+                    neighbors = [
+                        padded[i-1, j-1], padded[i-1, j], padded[i-1, j+1],
+                        padded[i, j-1],                   padded[i, j+1],
+                        padded[i+1, j-1], padded[i+1, j], padded[i+1, j+1]
+                    ]
+                    
+                    # Convert to binary values (0 or 1)
+                    neighbors = [1 if n == 255 else 0 for n in neighbors]
+                    
+                    # Calculate crossing number (CN)
+                    # CN = 0.5 * sum(|P_{i} - P_{i+1}|) for i=1 to 8, with P_9 = P_1
+                    transitions = 0
+                    for k in range(8):
+                        transitions += abs(neighbors[k] - neighbors[(k+1) % 8])
+                    cn = transitions // 2
+                    
+                    # Determine minutiae type
+                    if cn == 1:  # Ridge ending
+                        minutiae.append({
+                            'x': j-1,  # Adjust for padding
+                            'y': i-1,  # Adjust for padding
+                            'type': 'ending'
+                        })
+                        cv2.circle(minutiae_image, (j-1, i-1), 3, (0, 0, 255), -1)  # Red for endings
+                        
+                    elif cn == 3:  # Ridge bifurcation
+                        minutiae.append({
+                            'x': j-1,  # Adjust for padding
+                            'y': i-1,  # Adjust for padding
+                            'type': 'bifurcation'
+                        })
+                        cv2.circle(minutiae_image, (j-1, i-1), 3, (0, 255, 0), -1)  # Green for bifurcations
+        
+        # Filter minutiae by proximity to reduce duplicates
+        filtered_minutiae = []
+        min_distance = 10  # Minimum distance between minutiae
+        
+        for m in minutiae:
+            too_close = False
+            for fm in filtered_minutiae:
+                dist = np.sqrt((m['x'] - fm['x'])**2 + (m['y'] - fm['y'])**2)
+                if dist < min_distance:
+                    too_close = True
+                    break
+            
+            if not too_close:
+                filtered_minutiae.append(m)
+        
+        return filtered_minutiae, minutiae_image
+
+class FeatureExtractor:
+    """Extract multiple feature types for robust matching"""
+    
+    @staticmethod
+    def extract_sift_features(image):
+        """Extract SIFT features (scale-invariant)"""
+        try:
+            # Try using SIFT (if OpenCV built with it)
+            sift = cv2.SIFT_create()
+            keypoints, descriptors = sift.detectAndCompute(image, None)
+            return keypoints, descriptors
+        except:
+            # Fall back to ORB if SIFT not available
+            logger.warning("SIFT not available, falling back to ORB")
+            return FeatureExtractor.extract_orb_features(image)
+    
+    @staticmethod
+    def extract_orb_features(image):
+        """Extract ORB features (fast but less invariant)"""
+        orb = cv2.ORB_create(nfeatures=1000)
+        keypoints, descriptors = orb.detectAndCompute(image, None)
+        return keypoints, descriptors
+    
+    @staticmethod
+    def extract_harris_keypoints(image):
+        """Extract Harris corner keypoints"""
+        gray = image.copy()
+        if len(gray.shape) > 2:
+            gray = cv2.cvtColor(gray, cv2.COLOR_BGR2GRAY)
+            
+        # Detect corners using Harris
+        corners = cv2.cornerHarris(gray, blockSize=2, ksize=3, k=0.04)
+        
+        # Normalize and threshold
+        corners = cv2.dilate(corners, None)
+        _, corners = cv2.threshold(corners, 0.01 * corners.max(), 255, 0)
+        corners = np.uint8(corners)
+        
+        # Find centroids
+        _, _, _, centroids = cv2.connectedComponentsWithStats(corners)
+        
+        # Define criteria and refine corners
+        criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 0.001)
+        corners = cv2.cornerSubPix(gray, np.float32(centroids), (5, 5), (-1, -1), criteria)
+        
+        # Convert to keypoints
+        keypoints = [cv2.KeyPoint(float(x[0]), float(x[1]), 1) for x in corners]
+        
+        return keypoints
+    
+    @staticmethod
+    def extract_all_features(image, enhanced_image):
+        """Extract multiple feature types for fusion matching"""
+        # Extract minutiae
+        minutiae_extractor = MinutiaeExtractor()
+        minutiae, minutiae_image = minutiae_extractor.extract(enhanced_image['skeleton'])
+        
+        # Extract SIFT/ORB features for global matching
+        try:
+            sift_keypoints, sift_descriptors = FeatureExtractor.extract_sift_features(enhanced_image['enhanced'])
+        except:
+            sift_keypoints, sift_descriptors = [], None
+            
+        # Extract ORB features as backup
+        orb_keypoints, orb_descriptors = FeatureExtractor.extract_orb_features(enhanced_image['enhanced'])
+        
+        # Harris corners with ORB descriptors as third method
+        harris_keypoints = FeatureExtractor.extract_harris_keypoints(enhanced_image['enhanced'])
+        
+        # If we have Harris keypoints, compute ORB descriptors for them
+        harris_descriptors = None
+        if harris_keypoints:
+            orb = cv2.ORB_create()
+            _, harris_descriptors = orb.compute(enhanced_image['enhanced'], harris_keypoints)
+        
+        # Calculate fingerprint quality
+        quality = QualityAssessor.assess_quality(enhanced_image)
+        
+        # Return all feature sets
+        return {
+            'minutiae': minutiae,
+            'sift_keypoints': [keypoint_to_dict(kp) for kp in sift_keypoints] if sift_keypoints else [],
+            'sift_descriptors': sift_descriptors.tolist() if sift_descriptors is not None else [],
+            'orb_keypoints': [keypoint_to_dict(kp) for kp in orb_keypoints] if orb_keypoints else [],
+            'orb_descriptors': orb_descriptors.tolist() if orb_descriptors is not None else [],
+            'harris_keypoints': [keypoint_to_dict(kp) for kp in harris_keypoints] if harris_keypoints else [],
+            'harris_descriptors': harris_descriptors.tolist() if harris_descriptors is not None else [],
+            'quality': quality,
+            'minutiae_image': minutiae_image  # For visualization
+        }
+
+class QualityAssessor:
+    """Assess fingerprint image quality"""
+    
+    @staticmethod
+    def assess_quality(enhanced_image):
+        """Comprehensive quality assessment metrics"""
+        # 1. Contrast assessment
+        gray = enhanced_image['gray']
+        contrast = gray.std()
+        contrast_score = min(100, contrast / 2.55)
+        
+        # 2. Ridge clarity assessment
+        binary = enhanced_image['binary']
+        ridge_area = np.sum(binary > 0) / binary.size
+        ridge_score = 100 * (0.5 - abs(0.5 - ridge_area)) * 2  # Best if around 50% of the image
+        
+        # 3. Ridge orientation coherence
+        orientation_map = enhanced_image['orientation_map']
+        if orientation_map.size > 0:
+            # Calculate coherence (consistency of orientation)
+            coherence_score = 50  # Default value
+            
+            # Simple measure: consistency of adjacent orientation blocks
+            if orientation_map.shape[0] > 1 and orientation_map.shape[1] > 1:
+                diffs = []
+                for i in range(orientation_map.shape[0] - 1):
+                    for j in range(orientation_map.shape[1] - 1):
+                        # Calculate differences with neighbors
+                        center = orientation_map[i, j]
+                        right = orientation_map[i, j + 1]
+                        bottom = orientation_map[i + 1, j]
+                        
+                        # Only consider valid orientations
+                        if center != 0 and right != 0:
+                            angle_diff = min(abs(center - right), np.pi - abs(center - right))
+                            diffs.append(angle_diff)
+                        
+                        if center != 0 and bottom != 0:
+                            angle_diff = min(abs(center - bottom), np.pi - abs(center - bottom))
+                            diffs.append(angle_diff)
+                
+                if diffs:
+                    avg_diff = np.mean(diffs)
+                    coherence_score = 100 * (1 - avg_diff / (np.pi / 2))
+        else:
+            coherence_score = 50
+        
+        # 4. Minutiae quality
+        skeleton = enhanced_image['skeleton']
+        minutiae, _ = MinutiaeExtractor.extract(skeleton)
+        
+        minutiae_score = min(100, len(minutiae) * 2)  # More minutiae is better, up to a point
+        
+        # 5. Clarity via Sobel gradient
+        sobelx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
+        sobely = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
+        gradient_mag = cv2.magnitude(sobelx, sobely)
+        clarity_score = min(100, np.mean(gradient_mag) / 2)
+        
+        # Calculate weighted quality score
+        weights = [0.2, 0.2, 0.2, 0.2, 0.2]  # Equal weights
+        scores = [contrast_score, ridge_score, coherence_score, minutiae_score, clarity_score]
+        
+        weighted_quality = sum(w * s for w, s in zip(weights, scores))
+        
+        return {
+            'overall': weighted_quality,
+            'contrast': contrast_score,
+            'ridge_quality': ridge_score,
+            'coherence': coherence_score,
+            'minutiae_count': len(minutiae),
+            'minutiae_quality': minutiae_score,
+            'clarity': clarity_score
+        }
+
+class FingerprintMatcher:
+    """Multi-algorithm fingerprint matcher"""
+    
+    @staticmethod
+    def match_minutiae(probe_minutiae, template_minutiae):
+        """Match fingerprints based on minutiae points"""
+        if not probe_minutiae or not template_minutiae:
+            return 0
+            
+        # Convert to numpy arrays for vectorized operations
+        probe_points = np.array([[m['x'], m['y']] for m in probe_minutiae])
+        template_points = np.array([[m['x'], m['y']] for m in template_minutiae])
+        
+        # Get minutiae types
+        probe_types = [m['type'] for m in probe_minutiae]
+        template_types = [m['type'] for m in template_minutiae]
+        
+        # Count matches
+        match_count = 0
+        matched_template_indices = set()
+        
+        for i, (p_point, p_type) in enumerate(zip(probe_points, probe_types)):
+            best_distance = float('inf')
+            best_idx = -1
+            
+            for j, (t_point, t_type) in enumerate(zip(template_points, template_types)):
+                if j in matched_template_indices:
+                    continue
+                    
+                # Only match same types (bifurcation with bifurcation, ending with ending)
+                if p_type != t_type:
+                    continue
+                    
+                # Calculate Euclidean distance
+                distance = np.sqrt(((p_point - t_point) ** 2).sum())
+                
+                if distance < MINUTIAE_DISTANCE_THRESHOLD and distance < best_distance:
+                    best_distance = distance
+                    best_idx = j
+            
+            if best_idx != -1:
+                match_count += 1
+                matched_template_indices.add(best_idx)
+        
+        # Calculate score as percentage of matched minutiae
+        total_minutiae = max(len(probe_minutiae), len(template_minutiae))
+        
+        if total_minutiae == 0:
+            return 0
+            
+        return match_count / total_minutiae
+    
+    @staticmethod
+    def match_features(probe_descriptors, template_descriptors, descriptor_type='orb'):
+        """Match feature descriptors (SIFT or ORB)"""
+        if probe_descriptors is None or template_descriptors is None:
+            return 0, []
+            
+        if len(probe_descriptors) == 0 or len(template_descriptors) == 0:
+            return 0, []
+            
+        # Convert to numpy arrays if needed
+        if isinstance(probe_descriptors, list):
+            probe_descriptors = np.array(probe_descriptors, dtype=np.float32 if descriptor_type == 'sift' else np.uint8)
+            
+        if isinstance(template_descriptors, list):
+            template_descriptors = np.array(template_descriptors, dtype=np.float32 if descriptor_type == 'sift' else np.uint8)
+        
+        # Choose matcher based on descriptor type
+        if descriptor_type == 'sift':
+            # FLANN based matcher for SIFT
+            FLANN_INDEX_KDTREE = 1
+            index_params = dict(algorithm=FLANN_INDEX_KDTREE, trees=5)
+            search_params = dict(checks=50)
+            matcher = cv2.FlannBasedMatcher(index_params, search_params)
+        else:
+            # Brute force matcher with Hamming distance for ORB
+            matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+        
+        try:
+            # Perform matching
+            matches = matcher.match(probe_descriptors, template_descriptors)
+            
+            # Filter and sort matches
+            matches = sorted(matches, key=lambda x: x.distance)
+            
+            # Calculate score based on number and quality of matches
+            if len(matches) > MIN_MATCH_COUNT:
+                # Use top matches for scoring
+                good_matches = matches[:min(len(matches), 50)]
+                
+                # Normalize distances to 0-1 range
+                max_distance = 100 if descriptor_type == 'orb' else 500  # Different scales for ORB vs SIFT
+                distances = np.array([m.distance for m in good_matches])
+                normalized_distances = np.clip(distances / max_distance, 0, 1)
+                
+                # Score considers both quantity and quality of matches
+                match_ratio = len(good_matches) / min(len(probe_descriptors), len(template_descriptors))
+                quality_score = 1 - np.mean(normalized_distances)
+                
+                score = 0.5 * match_ratio + 0.5 * quality_score
+                
+                return score, matches
+            else:
+                return 0, []
+        except Exception as e:
+            logger.error(f"Error in matching {descriptor_type} features: {e}")
+            return 0, []
+    
+    @staticmethod
+    def match_combined(probe_features, template_features):
+        """Combined matcher using multiple algorithms for higher accuracy"""
+        scores = []
+        weights = []
+        
+        # 1. Minutiae matching (highest weight)
+        if probe_features.get('minutiae') and template_features.get('minutiae'):
+            minutiae_score = FingerprintMatcher.match_minutiae(
+                probe_features['minutiae'], 
+                template_features['minutiae']
+            )
+            scores.append(minutiae_score)
+            weights.append(0.5)  # 50% weight for minutiae
+        
+        # 2. SIFT feature matching
+        if (probe_features.get('sift_descriptors') and template_features.get('sift_descriptors') and 
+                len(probe_features['sift_descriptors']) > 0 and len(template_features['sift_descriptors']) > 0):
+            sift_score, _ = FingerprintMatcher.match_features(
+                probe_features['sift_descriptors'],
+                template_features['sift_descriptors'],
+                'sift'
+            )
+            scores.append(sift_score)
+            weights.append(0.25)  # 25% weight for SIFT
+        
+        # 3. ORB feature matching
+        if (probe_features.get('orb_descriptors') and template_features.get('orb_descriptors') and 
+                len(probe_features['orb_descriptors']) > 0 and len(template_features['orb_descriptors']) > 0):
+            orb_score, _ = FingerprintMatcher.match_features(
+                probe_features['orb_descriptors'],
+                template_features['orb_descriptors'],
+                'orb'
+            )
+            scores.append(orb_score)
+            weights.append(0.25)  # 25% weight for ORB
+        
+        # If we have no scores, try Harris features as fallback
+        if not scores and (probe_features.get('harris_descriptors') and template_features.get('harris_descriptors') and 
+                len(probe_features['harris_descriptors']) > 0 and len(template_features['harris_descriptors']) > 0):
+            harris_score, _ = FingerprintMatcher.match_features(
+                probe_features['harris_descriptors'],
+                template_features['harris_descriptors'],
+                'orb'  # Harris uses ORB descriptors
+            )
+            scores.append(harris_score)
+            weights.append(1.0)  # 100% weight if it's our only score
+        
+        # Calculate weighted score
+        if not scores:
+            return 0
+            
+        # Normalize weights
+        weights_sum = sum(weights)
+        if weights_sum == 0:
+            return 0
+            
+        normalized_weights = [w / weights_sum for w in weights]
+        combined_score = sum(s * w for s, w in zip(scores, normalized_weights))
+        
+        return combined_score
 
 def keypoint_to_dict(keypoint):
     """Convert OpenCV KeyPoint to dictionary for JSON serialization"""
@@ -215,44 +612,91 @@ def save_fingerprint_image(staff_id, image_data, scan_index=0):
         logger.error(f"Error saving fingerprint image: {e}")
         return None
 
-def create_template(images):
-    """Process multiple fingerprint images and create a template"""
-    if not images or len(images) == 0:
+def process_fingerprint(image_data):
+    """Process a single fingerprint image and extract features"""
+    try:
+        # Convert base64 to image
+        img = base64_to_image(image_data)
+        
+        # Enhance the image
+        enhancer = FingerprintEnhancer()
+        enhanced_images = enhancer.enhance(img)
+        
+        # Extract features
+        features = FeatureExtractor.extract_all_features(img, enhanced_images)
+        
+        return features
+    except Exception as e:
+        logger.error(f"Error processing fingerprint: {e}")
+        traceback.print_exc()
         return None
+
+def process_fingerprints_parallel(fingerprints):
+    """Process multiple fingerprints in parallel"""
+    with multiprocessing.Pool(processes=NUM_CORES) as pool:
+        results = pool.map(process_fingerprint, fingerprints)
+    return results
+
+def combine_fingerprint_features(features_list):
+    """Combine features from multiple fingerprint scans"""
+    if not features_list:
+        return None
+        
+    # Filter out None values
+    valid_features = [f for f in features_list if f is not None]
     
-    all_keypoints = []
-    all_descriptors = []
+    if not valid_features:
+        return None
+        
+    # Start with first feature set
+    combined = valid_features[0].copy()
     
-    for img_data in images:
-        try:
-            # Convert base64 to image
-            img = base64_to_image(img_data)
-            
-            # Process the image
-            processed = enhance_fingerprint(img)
-            
-            # Extract keypoints
-            keypoints = extract_minutiae_points(processed['skeleton'])
-            
-            # Extract descriptors
-            descriptors = extract_descriptors(processed['enhanced'], keypoints)
-            
-            if keypoints and descriptors is not None:
-                # Convert keypoints to dictionaries
-                keypoints_dict = [keypoint_to_dict(kp) for kp in keypoints]
-                
-                all_keypoints.append(keypoints_dict)
-                all_descriptors.append(descriptors.tolist() if descriptors is not None else [])
-        except Exception as e:
-            logger.error(f"Error processing fingerprint image: {e}")
+    # Combine minutiae sets (with deduplication)
+    all_minutiae = []
+    for features in valid_features:
+        minutiae = features.get('minutiae', [])
+        all_minutiae.extend(minutiae)
     
-    # Create composite template
-    template = {
-        'keypoints': [kp for sublist in all_keypoints for kp in sublist],
-        'descriptors': np.vstack(all_descriptors).tolist() if all_descriptors else []
-    }
+    # Deduplicate minutiae
+    deduplicated_minutiae = []
+    for minutia in all_minutiae:
+        # Check if similar minutia already exists
+        is_duplicate = False
+        for existing in deduplicated_minutiae:
+            if (abs(minutia['x'] - existing['x']) < 10 and 
+                abs(minutia['y'] - existing['y']) < 10 and
+                minutia['type'] == existing['type']):
+                is_duplicate = True
+                break
+        
+        if not is_duplicate:
+            deduplicated_minutiae.append(minutia)
     
-    return template
+    combined['minutiae'] = deduplicated_minutiae
+    
+    # Combine feature descriptors - take best quality from each set
+    best_quality = 0
+    best_quality_index = 0
+    
+    for i, features in enumerate(valid_features):
+        quality = features.get('quality', {}).get('overall', 0)
+        if quality > best_quality:
+            best_quality = quality
+            best_quality_index = i
+    
+    # Use the feature descriptors from the best quality scan
+    best_features = valid_features[best_quality_index]
+    combined['sift_descriptors'] = best_features.get('sift_descriptors', [])
+    combined['sift_keypoints'] = best_features.get('sift_keypoints', [])
+    combined['orb_descriptors'] = best_features.get('orb_descriptors', [])
+    combined['orb_keypoints'] = best_features.get('orb_keypoints', [])
+    combined['harris_descriptors'] = best_features.get('harris_descriptors', [])
+    combined['harris_keypoints'] = best_features.get('harris_keypoints', [])
+    
+    # Use the highest quality score
+    combined['quality'] = {'overall': best_quality}
+    
+    return combined
 
 @app.route('/api/fingerprint/process-multiple', methods=['POST'])
 def process_multiple_fingerprints():
@@ -282,19 +726,41 @@ def process_multiple_fingerprints():
     if len(fingerprints) < 2:
         return jsonify({'success': False, 'message': 'At least 2 fingerprints required'}), 400
     
-    # Process fingerprints
-    template = create_template(fingerprints)
-    
-    if template is None:
-        return jsonify({'success': False, 'message': 'Failed to create template'}), 500
-    
-    # Save images
-    saved_files = []
-    if staff_id:
-        for i, fp_data in enumerate(fingerprints):
-            filepath = save_fingerprint_image(staff_id, fp_data, i)
-            if filepath:
-                saved_files.append(filepath)
+    # Process fingerprints in parallel for efficiency
+    try:
+        # Process fingerprints
+        logger.info(f"Processing {len(fingerprints)} fingerprints in parallel")
+        features_list = process_fingerprints_parallel(fingerprints)
+        
+        # Combine features
+        combined_features = combine_fingerprint_features(features_list)
+        
+        if not combined_features:
+            return jsonify({'success': False, 'message': 'Failed to extract features from fingerprints'}), 500
+        
+        # Create template
+        template = {
+            'minutiae': combined_features.get('minutiae', []),
+            'sift_descriptors': combined_features.get('sift_descriptors', []),
+            'sift_keypoints': combined_features.get('sift_keypoints', []),
+            'orb_descriptors': combined_features.get('orb_descriptors', []),
+            'orb_keypoints': combined_features.get('orb_keypoints', []),
+            'harris_descriptors': combined_features.get('harris_descriptors', []),
+            'harris_keypoints': combined_features.get('harris_keypoints', []),
+            'quality': combined_features.get('quality', {})
+        }
+        
+        # Save images
+        saved_files = []
+        if staff_id:
+            for i, fp_data in enumerate(fingerprints):
+                filepath = save_fingerprint_image(staff_id, fp_data, i)
+                if filepath:
+                    saved_files.append(filepath)
+    except Exception as e:
+        logger.error(f"Error processing fingerprints: {e}")
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': f'Error processing fingerprints: {str(e)}'}), 500
     
     processing_time = time.time() - start_time
     logger.info(f"Processed {len(fingerprints)} fingerprints in {processing_time:.3f}s")
@@ -302,7 +768,8 @@ def process_multiple_fingerprints():
     return jsonify({
         'success': True,
         'template': template,
-        'quality_score': 0.85,  # This is a placeholder, implement real quality assessment if needed
+        'original_template': template,  # Keep the same format as before
+        'quality_score': combined_features.get('quality', {}).get('overall', 0),
         'saved_files': saved_files,
         'processing_time': processing_time
     })
@@ -317,87 +784,63 @@ def match_fingerprint():
         return jsonify({'success': False, 'message': 'Missing fingerprint data'}), 400
     
     try:
-        # Convert base64 to image
-        img = base64_to_image(data['fingerPrint'])
+        # Process the query fingerprint
+        features = process_fingerprint(data['fingerPrint'])
         
-        # Process the fingerprint
-        processed = enhance_fingerprint(img)
-        
-        # Check quality
-        quality_score = assess_image_quality(processed['enhanced'])
-        if quality_score < 30:
+        if not features:
             return jsonify({
                 'success': False,
                 'matched': False,
-                'message': f'Poor quality fingerprint image (score: {quality_score}). Please try again.',
-                'quality_score': quality_score
+                'message': 'Could not extract features from fingerprint',
             }), 400
         
-        # Extract features
-        query_keypoints = extract_minutiae_points(processed['skeleton'])
-        query_descriptors = extract_descriptors(processed['enhanced'], query_keypoints)
+        # Check quality
+        quality = features.get('quality', {}).get('overall', 0)
+        if quality < QUALITY_THRESHOLD:
+            return jsonify({
+                'success': False,
+                'matched': False,
+                'message': f'Poor quality fingerprint (score: {quality:.1f}). Please try again with better placement.',
+                'quality_score': quality
+            }), 400
         
         if 'templates' not in data or not data['templates']:
             return jsonify({'success': False, 'message': 'No templates provided'}), 400
             
-        # Organize templates by staff ID
-        staff_templates = {}
-        for t in data['templates']:
-            staff_id = t.get('staffId')
-            if not staff_id:
-                continue
-            
-            if staff_id not in staff_templates:
-                staff_templates[staff_id] = []
-                
-            if 'template' in t:
-                staff_templates[staff_id].append(t['template'])
-        
         # Match against all templates
         match_results = []
         
-        for staff_id, templates in staff_templates.items():
-            best_staff_score = 0
+        for t in data['templates']:
+            staff_id = t.get('staffId')
+            template = t.get('template', {})
             
-            for template in templates:
-                # Check if template has valid descriptors and keypoints
-                if ('descriptors' not in template or 
-                    not template['descriptors'] or 
-                    len(template['descriptors']) == 0):
-                    continue
+            if not staff_id or not template:
+                continue
                 
-                template_descriptors = np.array(template['descriptors'], dtype=np.uint8)
-                
-                # Match descriptors
-                score, _ = match_fingerprints(query_descriptors, template_descriptors)
-                
-                # Update best score for this staff
-                best_staff_score = max(best_staff_score, score)
+            # Match using combined algorithm
+            score = FingerprintMatcher.match_combined(features, template)
             
-            # Add to results if there was a valid score
-            if best_staff_score > 0:
-                match_results.append({
-                    'staffId': staff_id,
-                    'score': best_staff_score,
-                    'templateCount': len(templates)
-                })
+            match_results.append({
+                'staffId': staff_id,
+                'score': score,
+                'templateCount': 1
+            })
         
         # Sort by score
         match_results.sort(key=lambda x: x['score'], reverse=True)
         
         # Determine match
-        if match_results and match_results[0]['score'] >= 0.45:  # Threshold can be tuned
+        if match_results and match_results[0]['score'] >= MATCH_THRESHOLD:
             top_match = match_results[0]
             
             # Determine confidence level
             confidence = "low"
-            if top_match['score'] >= 0.65:
+            if top_match['score'] >= 0.80:
                 confidence = "high"
-            elif top_match['score'] >= 0.55:
+            elif top_match['score'] >= 0.65:
                 confidence = "medium"
             
             processing_time = time.time() - start_time
-            logger.info(f"Matched fingerprint to staff ID {top_match['staffId']} with score {top_match['score']:.2f} in {processing_time:.3f}s")
             
             return jsonify({
                 'success': True,
@@ -410,20 +853,16 @@ def match_fingerprint():
         else:
             processing_time = time.time() - start_time
             
-            best_score = match_results[0]['score'] if match_results else 0
-            logger.info(f"No match found for fingerprint. Best score: {best_score:.2f} in {processing_time:.3f}s")
-            
             return jsonify({
                 'success': False,
                 'matched': False,
                 'message': 'No matching fingerprint found',
-                'bestScore': best_score,
+                'bestScore': match_results[0]['score'] if match_results else 0,
                 'processing_time': processing_time
             })
     
     except Exception as e:
         logger.error(f"Error in fingerprint matching: {e}")
-        import traceback
         traceback.print_exc()
         
         return jsonify({
@@ -448,15 +887,25 @@ def verify_fingerprint():
     try:
         staff_id = data['staffId']
         
-        # Convert base64 to image
-        img = base64_to_image(data['fingerPrint'])
-        
         # Process the fingerprint
-        processed = enhance_fingerprint(img)
+        features = process_fingerprint(data['fingerPrint'])
         
-        # Extract features
-        query_keypoints = extract_minutiae_points(processed['skeleton'])
-        query_descriptors = extract_descriptors(processed['enhanced'], query_keypoints)
+        if not features:
+            return jsonify({
+                'success': False,
+                'verified': False,
+                'message': 'Could not extract features from fingerprint',
+            }), 400
+        
+        # Check quality
+        quality = features.get('quality', {}).get('overall', 0)
+        if quality < QUALITY_THRESHOLD:
+            return jsonify({
+                'success': False,
+                'verified': False,
+                'message': f'Poor quality fingerprint (score: {quality:.1f}). Please try again with better placement.',
+                'quality_score': quality
+            }), 400
         
         if 'templates' not in data or not data['templates']:
             return jsonify({'success': False, 'message': 'No templates provided'}), 400
@@ -474,28 +923,20 @@ def verify_fingerprint():
                 'message': 'No templates found for this staff ID'
             }), 404
         
-        # Match against each template
+        # Match against each template and get best score
         best_score = 0
         for template in staff_templates:
-            if 'descriptors' not in template or not template['descriptors']:
-                continue
-                
-            template_descriptors = np.array(template['descriptors'], dtype=np.uint8)
-            
-            # Match descriptors
-            score, _ = match_fingerprints(query_descriptors, template_descriptors)
-            
-            # Update best score
+            score = FingerprintMatcher.match_combined(features, template)
             best_score = max(best_score, score)
         
         # Determine if verified
-        verified = best_score >= 0.45  # Threshold can be tuned
+        verified = best_score >= MATCH_THRESHOLD
         
         # Determine confidence level
         confidence = "low"
-        if best_score >= 0.65:
+        if best_score >= 0.80:
             confidence = "high"
-        elif best_score >= 0.55:
+        elif best_score >= 0.65:
             confidence = "medium"
         
         processing_time = time.time() - start_time
@@ -511,6 +952,7 @@ def verify_fingerprint():
     
     except Exception as e:
         logger.error(f"Error in fingerprint verification: {e}")
+        traceback.print_exc()
         
         return jsonify({
             'success': False,
@@ -519,36 +961,15 @@ def verify_fingerprint():
             'error': str(e)
         }), 500
 
-def assess_image_quality(img):
-    """Assess fingerprint image quality (0-100)"""
-    # Check contrast
-    contrast = img.std()
-    contrast_score = min(100, contrast / 2.55)
-    
-    # Check foreground/background separation
-    otsu_threshold, _ = cv2.threshold(img, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    foreground = np.sum(img > otsu_threshold) / img.size
-    foreground_score = 100 * (0.5 - abs(0.5 - foreground)) * 2
-    
-    # Check clarity (using gradient magnitude)
-    sobelx = cv2.Sobel(img, cv2.CV_64F, 1, 0, ksize=3)
-    sobely = cv2.Sobel(img, cv2.CV_64F, 0, 1, ksize=3)
-    gradient_mag = np.sqrt(sobelx**2 + sobely**2)
-    clarity_score = min(100, np.mean(gradient_mag) / 2)
-    
-    # Weighted quality score
-    quality_score = (contrast_score * 0.3) + (foreground_score * 0.2) + (clarity_score * 0.5)
-    
-    return round(quality_score)
-
 @app.route('/api/status', methods=['GET'])
 def server_status():
     return jsonify({
         'status': 'running',
-        'version': '2.0',
-        'uptime': time.time()
+        'version': '3.0',
+        'uptime': time.time(),
+        'cores': NUM_CORES
     })
 
 if __name__ == '__main__':
-    print("Starting enhanced fingerprint server on port 5500")
-    app.run(host='0.0.0.0', port=5500, debug=True)
+    print(f"Starting high-accuracy fingerprint server on port 5500 using {NUM_CORES} cores")
+    app.run(host='0.0.0.0', port=5500, debug=False, threaded=True)
