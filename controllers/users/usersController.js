@@ -92,67 +92,24 @@ exports.deleteUser = async (req, res) => {
 
 exports.enrollUSer = async (req, res) => {
   try {
-    const { staffId, email } = req.body;
-    const files = req.files; // Uploaded fingerprint files
+    const { staffId, fingerPrint, email } = req.body;
 
-    // Added for direct enrollment
-    const fingerprints = req.body.fingerprints
-      ? typeof req.body.fingerprints === "string"
-        ? JSON.parse(req.body.fingerprints)
-        : req.body.fingerprints
-      : [];
+    console.log(`Enrolling single fingerprint: staffId=${staffId}`);
 
-    console.log(
-      `Enrolling user fingerprint: staffId=${staffId}, files=${files?.length}, direct fingerprints=${fingerprints.length}`
-    );
-
-    if (!staffId) {
+    if (!staffId || !fingerPrint) {
       return res.status(400).json({
         success: false,
-        error: "Missing ID",
-        message: "No ID provided for Staff",
+        error: "Missing Data",
+        message: "Staff ID and fingerprint data are required",
       });
     }
 
-    if (
-      (!files || files.length < 2) &&
-      (!fingerprints || fingerprints.length < 2)
-    ) {
-      return res.status(400).json({
-        success: false,
-        error: "Invalid Fingerprints",
-        message: "At least 2 fingerprint scans are required",
-      });
-    }
-
-    let userEmail = email;
-    if (!userEmail) {
-      const user = await Users.findById(staffId);
-      if (user) {
-        userEmail = user.email;
-      }
-    }
-
-    let enrollResult;
-
-    if (fingerprints && fingerprints.length >= 2) {
-      enrollResult = await fingerprintService.enrollFingerprint({
-        staffId,
-        fingerprints,
-        email: userEmail,
-      });
-    } else if (files && files.length >= 2) {
-      const processedFiles = files.map((file) => ({
-        path: file.path,
-        filename: file.filename,
-      }));
-
-      enrollResult = await fingerprintService.enrollFingerprintFromFiles({
-        staffId,
-        fingerprints: processedFiles,
-        email: userEmail,
-      });
-    }
+    // Process with the fingerprint service
+    const enrollResult = await fingerprintService.enrollFingerprint({
+      staffId,
+      fingerPrint,
+      email,
+    });
 
     if (!enrollResult || !enrollResult.success) {
       return res.status(400).json({

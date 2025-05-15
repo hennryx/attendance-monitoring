@@ -1,4 +1,3 @@
-// service/fingerprintService.js - Modified version
 const axios = require("axios");
 const FingerPrint = require("../models/FingerPrint");
 const Users = require("../models/Users");
@@ -6,61 +5,49 @@ const Users = require("../models/Users");
 const FINGERPRINT_SERVER_URL = "http://localhost:5500"; // Python server URL
 
 /**
- * Enhanced service for interacting with the fingerprint Python server and MongoDB
+ * Simplified fingerprint service for interacting with the Python server and MongoDB
  */
 class FingerprintService {
   /**
-   * Process and enroll a new fingerprint with multiple scans
-   * @param {Object} data Object containing staffId, email and fingerprints array of base64 data
+   * Process and enroll a single fingerprint scan
+   * @param {Object} data Object containing staffId, email and fingerPrint (base64 data)
    * @returns {Promise<Object>} Result of the enrollment
    */
   async enrollFingerprint(data) {
     try {
-      const { staffId, fingerprints, email } = data;
+      const { staffId, fingerPrint, email } = data;
 
-      if (
-        !staffId ||
-        !fingerprints ||
-        !Array.isArray(fingerprints) ||
-        fingerprints.length === 0
-      ) {
+      if (!staffId || !fingerPrint) {
         throw new Error("Missing staffId or fingerprint data");
       }
 
-      if (fingerprints.length < 2) {
-        throw new Error(
-          "At least 2 fingerprint scans are required for registration"
-        );
-      }
-
       console.log(
-        `Starting enrollment for staffId ${staffId} with ${fingerprints.length} scans`
+        `Starting single fingerprint enrollment for staffId ${staffId}`
       );
       const startTime = Date.now();
 
-      // Process the fingerprints with the Python server
+      // Process the fingerprint with the Python server
       const processResponse = await axios.post(
-        `${FINGERPRINT_SERVER_URL}/api/fingerprint/process-multiple`,
+        `${FINGERPRINT_SERVER_URL}/api/fingerprint/process-single`,
         {
           staffId,
           email,
-          fingerprints,
+          fingerPrint,
         },
         {
           // Add timeout to prevent long-running requests
-          timeout: 60000, // Increased timeout for enhanced processing
+          timeout: 30000,
         }
       );
 
       if (!processResponse.data.success) {
         throw new Error(
-          processResponse.data.message || "Failed to process fingerprints"
+          processResponse.data.message || "Failed to process fingerprint"
         );
       }
 
       // Extract data from response
-      const { template, original_template, quality_score, saved_files } =
-        processResponse.data;
+      const { template, quality_score, file_path } = processResponse.data;
 
       // Add quality validation
       if (quality_score < 40) {
@@ -77,11 +64,11 @@ class FingerprintService {
       if (existingRecord) {
         // Update existing record
         existingRecord.template = template;
-        existingRecord.original_template = original_template;
+        existingRecord.original_template = template; // For backwards compatibility
         existingRecord.quality_score = quality_score;
-        existingRecord.file_paths = saved_files;
+        existingRecord.file_paths = [file_path]; // Reset file paths
         existingRecord.updated_at = new Date();
-        existingRecord.scan_count = fingerprints.length;
+        existingRecord.scan_count = 1; // Reset to 1 since we're using single scan
 
         await existingRecord.save();
 
@@ -102,10 +89,10 @@ class FingerprintService {
         const newFingerprint = new FingerPrint({
           staffId,
           template,
-          original_template,
+          original_template: template, // For backwards compatibility
           quality_score,
-          file_paths: saved_files,
-          scan_count: fingerprints.length,
+          file_paths: [file_path],
+          scan_count: 1,
           enrolled_at: new Date(),
         });
 
@@ -168,7 +155,7 @@ class FingerprintService {
 
       console.log(`Found ${templates.length} templates for matching`);
 
-      // Send to Python server for matching with enhanced algorithm
+      // Send to Python server for matching
       const matchResponse = await axios.post(
         `${FINGERPRINT_SERVER_URL}/api/fingerprint/match`,
         {
@@ -176,7 +163,7 @@ class FingerprintService {
           templates,
         },
         {
-          timeout: 30000, // Increased timeout for thorough matching
+          timeout: 30000,
         }
       );
 
@@ -233,7 +220,7 @@ class FingerprintService {
         };
       }
 
-      // Send to Python server for verification with enhanced algorithm
+      // Send to Python server for verification
       const verifyResponse = await axios.post(
         `${FINGERPRINT_SERVER_URL}/api/fingerprint/verify`,
         {

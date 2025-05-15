@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { IoIosAdd } from "react-icons/io";
 import Swal from "sweetalert2";
-import { MultiFingerprintModal } from "./MultiscanFingerprintModal";
+import { FingerprintModal } from "./FingerprintModal";
 import useUsersStore from "../../../../services/stores/users/usersStore";
 import useAuthStore from "../../../../services/stores/authStore";
 
@@ -92,7 +92,6 @@ const Table = ({ data, toggleAdd, handleUpdate }) => {
 
   // Handle opening the fingerprint registration modal
   const handleFingerprintRegister = (staff) => {
-    // Check if the Fingerprint SDK is available
     if (!window.Fingerprint || !window.Fingerprint.WebApi) {
       Swal.fire({
         title: "SDK Not Available",
@@ -120,7 +119,7 @@ const Table = ({ data, toggleAdd, handleUpdate }) => {
   // Handle successful fingerprint capture
   const handleFingerprintCapture = async (formData) => {
     try {
-      console.log("Fingerprint Captured - using FormData");
+      console.log("Fingerprint Captured - processing");
       await enrollFingerPrint(formData, token);
 
       Swal.fire({
@@ -130,6 +129,16 @@ const Table = ({ data, toggleAdd, handleUpdate }) => {
       });
 
       setIsModalOpen(false);
+
+      // Update the UI to reflect the fingerprint registration
+      if (selectedStaff) {
+        const updatedData = allData.map((user) =>
+          user._id === selectedStaff._id
+            ? { ...user, hasFingerPrint: true }
+            : user
+        );
+        setAllData(updatedData);
+      }
     } catch (error) {
       console.error("Error registering fingerprint:", error);
       Swal.fire({
@@ -425,9 +434,9 @@ const Table = ({ data, toggleAdd, handleUpdate }) => {
       </table>
       {!searchResult && renderPagination()}
 
-      {/* Multi-Scan Fingerprint Modal */}
+      {/* Simplified Fingerprint Modal */}
       {isModalOpen && selectedStaff && (
-        <MultiFingerprintModal
+        <FingerprintModal
           isOpen={isModalOpen}
           onClose={() => setIsModalOpen(false)}
           onCapture={handleFingerprintCapture}

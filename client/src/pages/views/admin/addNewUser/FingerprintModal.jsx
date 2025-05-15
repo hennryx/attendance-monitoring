@@ -1,9 +1,16 @@
 import { useEffect, useState } from "react";
-import { HiOutlineX } from "react-icons/hi";
-import Swal from "sweetalert2";
 import { useFingerprintScanner } from "../../../../services/utilities/FingerprintScanner";
+import Swal from "sweetalert2";
+import { HiOutlineX } from "react-icons/hi";
+import { FaFingerprint, FaTimesCircle, FaSave } from "react-icons/fa";
 
-export const FingerprintModal = ({ isOpen, onClose, onCapture, staffId }) => {
+export const FingerprintModal = ({
+  isOpen,
+  onClose,
+  onCapture,
+  staffId,
+  staffEmail,
+}) => {
   const {
     fingerprint,
     status,
@@ -19,6 +26,8 @@ export const FingerprintModal = ({ isOpen, onClose, onCapture, staffId }) => {
   const [isScanning, setIsScanning] = useState(false);
   const [scanError, setScanError] = useState(null);
   const [scanTimeout, setScanTimeout] = useState(null);
+  const [isCoolingDown, setIsCoolingDown] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (isOpen && !window.Fingerprint) {
@@ -60,12 +69,37 @@ export const FingerprintModal = ({ isOpen, onClose, onCapture, staffId }) => {
   const resetScanState = () => {
     setIsScanning(false);
     setScanError(null);
-    resetFingerprint();
-    stopCapture();
+    setIsCoolingDown(true);
+
+    stopCapture()
+      .then(() => {
+        resetFingerprint();
+
+        setTimeout(() => {
+          setIsCoolingDown(false);
+        }, 1500); // 1.5 seconds cooldown
+      })
+      .catch((err) => {
+        console.error("Error stopping capture:", err);
+        setTimeout(() => {
+          setIsCoolingDown(false);
+        }, 3000); // 3 seconds cooldown if error
+      });
   };
 
   const handleScan = async () => {
-    if (isScanning) return;
+    if (isScanning || isCoolingDown) {
+      if (isCoolingDown) {
+        Swal.fire({
+          title: "Scanner Resetting",
+          text: "Please wait a moment before starting another scan",
+          icon: "info",
+          timer: 1500,
+          showConfirmButton: false,
+        });
+      }
+      return;
+    }
 
     if (!selectedReader) {
       Swal.fire({
@@ -82,7 +116,7 @@ export const FingerprintModal = ({ isOpen, onClose, onCapture, staffId }) => {
     // Show scanning prompt
     Swal.fire({
       title: "Scanning...",
-      text: "Place your finger on the reader",
+      text: "Place your finger flat on the reader",
       allowOutsideClick: false,
       showConfirmButton: false,
       didOpen: () => {
@@ -113,38 +147,16 @@ export const FingerprintModal = ({ isOpen, onClose, onCapture, staffId }) => {
       );
 
       if (fingerprintData) {
-        const cleanedFingerprintData = fingerprintData.includes("base64")
-          ? fingerprintData.split(",")[1]
-          : fingerprintData;
+        Swal.close();
 
-        // Update loading message
-        Swal.update({
-          title: "Processing...",
-          text: "Registering fingerprint",
+        // Show success feedback
+        Swal.fire({
+          title: "Scan Successful!",
+          text: "Fingerprint captured. Press Save to complete registration.",
+          icon: "success",
+          timer: 2000,
+          showConfirmButton: false,
         });
-
-        // Call the capture callback
-        try {
-          await onCapture({
-            staffId,
-            fingerPrint: cleanedFingerprintData,
-          });
-
-          // The parent component will handle success/error messages
-          Swal.close();
-
-          // Close the modal after a slight delay
-          setTimeout(() => {
-            onClose();
-          }, 500);
-        } catch (error) {
-          console.error("Failed to register fingerprint:", error);
-          Swal.fire({
-            title: "Registration Failed",
-            text: error.message || "Failed to register fingerprint",
-            icon: "error",
-          });
-        }
       }
     } catch (error) {
       console.error("Scan error:", error);
@@ -164,90 +176,148 @@ export const FingerprintModal = ({ isOpen, onClose, onCapture, staffId }) => {
     }
   };
 
+  const handleSaveFingerprint = async () => {
+    if (!fingerprint) {
+      Swal.fire({
+        title: "No Fingerprint",
+        text: "Please scan your fingerprint before saving.",
+        icon: "warning",
+      });
+      return;
+    }
+
+    setSaving(true);
+
+    try {
+      Swal.fire({
+        title: "Processing...",
+        text: "Registering fingerprint",
+        allowOutsideClick: false,
+        showConfirmButton: false,
+        didOpen: () => {
+          Swal.showLoading();
+        },
+      });
+
+      // Extract base64 data
+      const base64Data = fingerprint.includes("base64")
+        ? fingerprint.split(",")[1]
+        : fingerprint;
+
+      const fingerprintData = {
+        staffId: staffId,
+        fingerPrint: base64Data,
+        email: staffEmail,
+      };
+
+      await onCapture(fingerprintData);
+      onClose();
+    } catch (error) {
+      console.error("Failed to register fingerprint:", error);
+      Swal.fire({
+        title: "Registration Failed",
+        text: error.message || "Failed to register fingerprint",
+        icon: "error",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (!isOpen) return null;
 
   return (
     <div className="modal modal-open">
-      <div className="modal-box bg-white text-black">
-        <div className="flex flex-row justify-between">
-          <h3 className="font-bold text-lg">Register Fingerprint</h3>
+      <div className="modal-box bg-white text-black max-w-lg">
+        <div className="flex flex-row justify-between items-center border-b pb-4 mb-4">
+          <h3 className="font-bold text-lg">Fingerprint Registration</h3>
           <button
             className="btn btn-ghost bg-white text-black"
             type="button"
-            onClick={() => {
-              resetScanState();
-              onClose();
-            }}
-            disabled={isScanning}
+            onClick={onClose}
+            disabled={isScanning || saving}
           >
-            <HiOutlineX />
+            <HiOutlineX size={20} />
           </button>
         </div>
 
-        <div className="modal-action">
-          <form className="flex flex-col gap-4 w-full">
-            <p className="text-gray-600 text-sm">Staff ID: {staffId}</p>
+        <div className="mb-6">
+          <div className="bg-blue-50 p-4 rounded-lg mb-6">
+            <h4 className="font-bold text-blue-800 mb-2">Scan Instructions</h4>
+            <p className="text-blue-600">
+              Place your finger flat on the center of the reader. Hold still
+              until the scan completes.
+            </p>
+          </div>
 
-            {readers.length > 0 && (
-              <p className="text-green-600 text-sm">
-                Using fingerprint reader: {selectedReader}
-              </p>
+          {readers.length > 0 ? (
+            <p className="text-green-600 text-sm mb-4">
+              Connected to reader: {selectedReader}
+            </p>
+          ) : (
+            <p className="text-red-600 text-sm mb-4">
+              No fingerprint reader detected. Please connect a reader.
+            </p>
+          )}
+
+          <div className="border-2 border-gray-300 rounded-lg flex items-center justify-center h-56 bg-gray-50">
+            {fingerprint ? (
+              <img
+                src={fingerprint}
+                alt="Fingerprint"
+                className="max-h-full max-w-full object-contain"
+              />
+            ) : scanError ? (
+              <p className="text-center text-red-500">{scanError}</p>
+            ) : (
+              <div className="text-center text-gray-500 p-4 flex flex-col items-center">
+                <FaFingerprint size={48} className="mb-2 text-gray-400" />
+                <p>{status || "Ready to scan"}</p>
+              </div>
             )}
+          </div>
+        </div>
 
-            {readers.length === 0 && (
-              <p className="text-red-600 text-sm">
-                No fingerprint reader detected. Please connect a reader.
-              </p>
-            )}
-
-            <div className="border rounded flex items-center justify-center h-40">
-              {fingerprint ? (
-                <img
-                  src={fingerprint}
-                  alt="Fingerprint"
-                  className="max-h-full"
-                />
-              ) : scanError ? (
-                <p className="text-center text-red-500">{scanError}</p>
-              ) : (
-                <p className="text-center text-gray-500">{status}</p>
-              )}
-            </div>
-
-            <div className="flex flex-col gap-2 pt-2 w-full">
+        <div className="modal-action flex justify-between">
+          <div>
+            <button
+              type="button"
+              className="btn btn-ghost border border-gray-300 text-gray-700 mr-2"
+              onClick={resetScanState}
+              disabled={!fingerprint || isScanning || saving}
+            >
+              <FaTimesCircle className="mr-1" /> Reset
+            </button>
+          </div>
+          <div className="flex gap-2">
+            {!fingerprint ? (
               <button
                 type="button"
-                className="btn w-full justify-center rounded-md bg-blue-300 px-3 py-1.5 text-sm font-semibold leading-6 text-blue-800 shadow-sm hover:bg-blue-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+                className="btn bg-blue-600 hover:bg-blue-700 text-white"
                 onClick={handleScan}
-                disabled={isScanning || readers.length === 0}
+                disabled={
+                  isScanning || saving || readers.length === 0 || isCoolingDown
+                }
               >
-                {isScanning ? "Processing..." : "Scan Fingerprint"}
+                <FaFingerprint className="mr-1" />{" "}
+                {isScanning
+                  ? "Scanning..."
+                  : isCoolingDown
+                  ? "Resetting..."
+                  : "Scan Fingerprint"}
               </button>
-
+            ) : (
               <button
                 type="button"
-                className="btn w-full justify-center rounded-md bg-gray-300 px-3 py-1.5 text-sm font-semibold leading-6 text-gray-800 shadow-sm hover:bg-gray-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-400"
-                onClick={() => {
-                  resetScanState();
-                  onClose();
-                }}
-                disabled={isScanning}
+                className="btn bg-green-600 hover:bg-green-700 text-white"
+                onClick={handleSaveFingerprint}
+                disabled={isScanning || saving || !fingerprint}
               >
-                Cancel
+                <FaSave className="mr-1" />{" "}
+                {saving ? "Saving..." : "Save Fingerprint"}
               </button>
-
-              {readers.length === 0 && (
-                <button
-                  type="button"
-                  className="btn w-full justify-center rounded-md bg-green-300 px-3 py-1.5 text-sm font-semibold leading-6 text-green-800 shadow-sm hover:bg-green-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green-600"
-                  onClick={refreshSdk}
-                  disabled={isScanning}
-                >
-                  Refresh Readers
-                </button>
-              )}
-            </div>
-          </form>
+            )}
+          </div>
         </div>
       </div>
     </div>

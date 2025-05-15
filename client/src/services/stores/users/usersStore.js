@@ -122,27 +122,36 @@ const useUsersStore = create((set, get) => ({
   enrollFingerPrint: async (data, token) => {
     set({ isLoading: true, message: "", isSuccess: false });
 
-    // Check if data is FormData (for file uploads)
-    const isFormData = data instanceof FormData;
-
-    // If not FormData, check for required fingerprints
-    if (
-      !isFormData &&
-      (!data.fingerprints ||
-        !Array.isArray(data.fingerprints) ||
-        data.fingerprints.length < 2)
-    ) {
-      set({
-        isLoading: false,
-        message: "At least 2 fingerprint scans are required",
-        isSuccess: false,
-      });
-      return;
-    }
-
     try {
-      // Use the correct function based on data type
-      const res = await axiosTools.saveData("users/enroll", data, token);
+      // Check if required data is provided
+      if (!data.staffId || !data.fingerPrint) {
+        set({
+          isLoading: false,
+          message: "Missing staff ID or fingerprint data",
+          isSuccess: false,
+        });
+        throw new Error("Missing staff ID or fingerprint data");
+      }
+
+      // Create a proper request with all required fields
+      const requestData = {
+        staffId: data.staffId,
+        fingerPrint: data.fingerPrint,
+        email: data.email || "",
+      };
+
+      console.log("Enrolling fingerprint with data:", {
+        staffId: requestData.staffId,
+        email: requestData.email,
+        fingerPrintProvided: !!requestData.fingerPrint,
+      });
+
+      // Use the saveData function to send the request
+      const res = await axiosTools.saveData(
+        "users/enroll-single",
+        requestData,
+        token
+      );
 
       set({
         isSuccess: res.success,
@@ -155,44 +164,6 @@ const useUsersStore = create((set, get) => ({
       set({
         isLoading: false,
         message: error.message || "Failed to enroll fingerprint",
-        isSuccess: false,
-      });
-
-      throw error;
-    }
-  },
-
-  // Upgraded function to handle both profile update and fingerprint enrollment
-  updateUserWithFingerprint: async (userData, fingerprintData, token) => {
-    set({ isLoading: true, message: "", isSuccess: false });
-
-    try {
-      // First update user profile
-      if (userData) {
-        await get().update(userData, token);
-      }
-
-      // Then enroll fingerprint if available
-      if (
-        fingerprintData &&
-        fingerprintData.fingerprints &&
-        Array.isArray(fingerprintData.fingerprints) &&
-        fingerprintData.fingerprints.length >= 2
-      ) {
-        await get().enrollFingerPrint(fingerprintData, token);
-      }
-
-      set({
-        isSuccess: true,
-        isLoading: false,
-        message: "User profile and fingerprint updated successfully!",
-      });
-
-      return true;
-    } catch (error) {
-      set({
-        isLoading: false,
-        message: error.message || "Profile update failed",
         isSuccess: false,
       });
 
