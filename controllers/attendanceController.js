@@ -6,7 +6,6 @@ const FingerPrint = require("../models/FingerPrint");
 const fingerprintService = require("../service/fingerprintService");
 const mongoose = require("mongoose");
 
-// Auto-detect and record attendance with fingerprint support
 exports.clockIn = async (req, res) => {
   try {
     const { fingerprint, staffId } = req.body;
@@ -16,7 +15,7 @@ exports.clockIn = async (req, res) => {
 
     if (fingerprint && !staffId) {
       try {
-        // Match fingerprint to identify staff
+        // Match fingerprint to identify staff using the improved matching algorithm
         const matchResult = await fingerprintService.matchFingerprint({
           fingerPrint: fingerprint,
         });
@@ -214,6 +213,23 @@ exports.clockIn = async (req, res) => {
           const overtimeMinutes = Math.floor((now - shiftEnd) / (1000 * 60));
           attendance.overtime = overtimeMinutes;
         }
+
+        // Calculate total hours worked including lunch break adjustment
+        if (attendance.timeIn) {
+          let totalMinutes = Math.floor(
+            (now - attendance.timeIn) / (1000 * 60)
+          );
+
+          // Subtract lunch break if taken
+          if (attendance.lunchStart && attendance.lunchEnd) {
+            const lunchMinutes = Math.floor(
+              (attendance.lunchEnd - attendance.lunchStart) / (1000 * 60)
+            );
+            totalMinutes -= lunchMinutes;
+          }
+
+          attendance.totalHoursWorked = Math.max(0, totalMinutes / 60);
+        }
       }
     }
 
@@ -240,314 +256,6 @@ exports.clockIn = async (req, res) => {
   }
 };
 
-// // Record clock-in with fingerprint
-// exports.clockIn = async (req, res) => {
-//   try {
-//     const { fingerprint, staffId } = req.body;
-
-//     // If fingerprint is provided, identify staff
-//     let identifiedStaffId = staffId;
-
-//     if (fingerprint && !staffId) {
-//       try {
-//         // Match fingerprint to identify staff
-//         const matchResult = await fingerprintService.matchFingerprint({
-//           fingerPrint: fingerprint,
-//         });
-
-//         if (!matchResult.matched) {
-//           return res.status(401).json({
-//             success: false,
-//             message:
-//               "No matching fingerprint found. Please register your fingerprint first.",
-//           });
-//         }
-
-//         identifiedStaffId = matchResult.staffId;
-//       } catch (error) {
-//         return res.status(500).json({
-//           success: false,
-//           message: "Error processing fingerprint",
-//           error: error.message,
-//         });
-//       }
-//     }
-
-//     if (!identifiedStaffId) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Staff identification failed",
-//       });
-//     }
-
-//     if (!mongoose.Types.ObjectId.isValid(identifiedStaffId)) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Invalid staff ID",
-//       });
-//     }
-
-//     // Find the staff to get their assigned shift
-//     const staff = await Users.findById(identifiedStaffId);
-
-//     if (!staff) {
-//       return res.status(404).json({
-//         success: false,
-//         message: "Staff not found",
-//       });
-//     }
-
-//     const now = new Date();
-//     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-//     const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday, etc.
-
-//     // Get the staff's shift (either assigned or custom)
-//     let shiftSchedule = null;
-//     let isWorkday = false;
-
-//     // Check if staff has an assigned shift
-//     if (staff.assignedShift) {
-//       const shift = await Shift.findById(staff.assignedShift);
-//       if (shift) {
-//         isWorkday = shift.isWorkday(dayOfWeek);
-//         if (isWorkday) {
-//           shiftSchedule = shift.getScheduleForDay(dayOfWeek);
-//         }
-//       }
-//     }
-//     // If no assigned shift or not a workday, check custom schedule
-//     if (!shiftSchedule && staff.customSchedule) {
-//       const dayNames = [
-//         "sunday",
-//         "monday",
-//         "tuesday",
-//         "wednesday",
-//         "thursday",
-//         "friday",
-//         "saturday",
-//       ];
-//       const dayName = dayNames[dayOfWeek];
-
-//       if (
-//         staff.customSchedule[dayName] &&
-//         staff.customSchedule[dayName].isWorkday
-//       ) {
-//         isWorkday = true;
-//         shiftSchedule = {
-//           startTime: staff.customSchedule[dayName].startTime,
-//           endTime: staff.customSchedule[dayName].endTime,
-//           lunchStartTime: staff.customSchedule[dayName].lunchStartTime,
-//           lunchDuration: staff.customSchedule[dayName].lunchDuration,
-//         };
-//       }
-//     }
-
-//     // If not a workday, inform user
-//     if (!isWorkday) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Today is not a workday according to your schedule",
-//       });
-//     }
-
-//     // Check if an attendance record already exists for today
-//     let attendance = await Attendance.findOne({
-//       staffId: identifiedStaffId,
-//       date: {
-//         $gte: today,
-//         $lt: new Date(today.getTime() + 24 * 60 * 60 * 1000),
-//       },
-//     });
-
-//     // If there's already a timeIn record, return error
-//     if (attendance && attendance.timeIn) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Clock-in already recorded for today",
-//       });
-//     }
-
-//     // If no existing record, create a new one
-//     if (!attendance) {
-//       attendance = new Attendance({
-//         staffId: identifiedStaffId,
-//         date: today,
-//         timeIn: now,
-//         status: "present",
-//       });
-//     } else {
-//       // Update existing record
-//       attendance.timeIn = now;
-//       attendance.status = "present";
-//     }
-
-//     // Calculate late minutes and update status if necessary
-//     if (shiftSchedule) {
-//       // Parse shift start time
-//       const [startHour, startMinute] = shiftSchedule.startTime
-//         .split(":")
-//         .map(Number);
-
-//       // Create shift start time for today
-//       const shiftStart = new Date(today);
-//       shiftStart.setHours(startHour, startMinute, 0, 0.0);
-
-//       // Calculate late minutes
-//       if (now > shiftStart) {
-//         const lateMinutes = Math.floor((now - shiftStart) / (1000 * 60));
-
-//         // Check if within grace period
-//         const gracePeriod = staff.gracePeriod || 15; // Default 15 minutes
-
-//         if (lateMinutes > gracePeriod) {
-//           attendance.status = "late";
-//           attendance.lateMinutes = lateMinutes;
-//         }
-//       }
-//     }
-
-//     await attendance.save();
-
-//     res.status(200).json({
-//       success: true,
-//       message: "Clock-in recorded successfully",
-//       data: attendance,
-//     });
-//   } catch (err) {
-//     console.error(err);
-//     res.status(500).json({
-//       success: false,
-//       message: "Error recording clock-in",
-//       error: err.message,
-//     });
-//   }
-// };
-
-// // Auto-detect and record attendance
-// exports.clockIn = async (req, res) => {
-//   try {
-//     const { staffId } = req.body;
-
-//     if (!mongoose.Types.ObjectId.isValid(staffId)) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Invalid staff ID",
-//       });
-//     }
-
-//     // Find the staff to get their assigned shift
-//     const staff = await Users.findById(staffId).populate("assignedShift");
-
-//     if (!staff) {
-//       return res.status(404).json({
-//         success: false,
-//         message: "Staff not found",
-//       });
-//     }
-
-//     const now = new Date();
-//     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-
-//     // Check if an attendance record already exists for today
-//     let attendance = await Attendance.findOne({
-//       staffId,
-//       date: {
-//         $gte: today,
-//         $lt: new Date(today.getTime() + 24 * 60 * 60 * 1000),
-//       },
-//     });
-
-//     // AUTO DETECTION LOGIC
-//     let attendanceType = "in"; // Default is clock-in
-//     let message = "Clock-in recorded successfully";
-
-//     if (attendance) {
-//       // Record exists - auto-detect what type of action this is
-//       if (!attendance.timeIn) {
-//         // If no timeIn recorded, this is a clock-in
-//         attendanceType = "in";
-//         message = "Clock-in recorded successfully";
-//       } else if (attendance.timeIn && !attendance.lunchStart) {
-//         // If timeIn exists but no lunchStart, this is starting lunch
-//         attendanceType = "lunch-start";
-//         message = "Lunch break started successfully";
-//       } else if (attendance.lunchStart && !attendance.lunchEnd) {
-//         // If lunchStart exists but no lunchEnd, this is ending lunch
-//         attendanceType = "lunch-end";
-//         message = "Lunch break ended successfully";
-//       } else if (attendance.timeIn && !attendance.timeOut) {
-//         // If timeIn exists but no timeOut, this is a clock-out
-//         attendanceType = "out";
-//         message = "Clock-out recorded successfully";
-//       } else {
-//         // All records exist for today - return error
-//         return res.status(400).json({
-//           success: false,
-//           message: "All attendance records already completed for today",
-//         });
-//       }
-//     } else {
-//       // No attendance record exists - create new one for clock-in
-//       attendance = new Attendance({
-//         staffId,
-//         date: today,
-//         status: "present",
-//       });
-//     }
-
-//     // Update attendance record based on detected type
-//     if (attendanceType === "in") {
-//       attendance.timeIn = now;
-
-//       // Check if staff has assigned shift and calculate late minutes
-//       if (staff.assignedShift) {
-//         const shift = staff.assignedShift;
-
-//         // Calculate late minutes
-//         const lateMinutes = shift.calculateLateMinutes(now);
-//         attendance.lateMinutes = lateMinutes;
-
-//         // Update status if late
-//         if (lateMinutes > 0) {
-//           attendance.status = "late";
-//         }
-//       }
-//     } else if (attendanceType === "lunch-start") {
-//       attendance.lunchStart = now;
-//     } else if (attendanceType === "lunch-end") {
-//       attendance.lunchEnd = now;
-//     } else if (attendanceType === "out") {
-//       attendance.timeOut = now;
-
-//       // Calculate overtime if shift is assigned
-//       if (staff.assignedShift) {
-//         const shift = staff.assignedShift;
-//         const overtimeMinutes = shift.calculateOvertimeMinutes(attendance.timeIn, now);
-//         attendance.overtime = overtimeMinutes;
-//       }
-//     }
-
-//     await attendance.save();
-
-//     res.status(200).json({
-//       success: true,
-//       message: message,
-//       data: {
-//         attendance,
-//         attendanceType,
-//       },
-//     });
-//   } catch (err) {
-//     console.error(err);
-//     res.status(500).json({
-//       success: false,
-//       message: "Error recording attendance",
-//       error: err.message,
-//     });
-//   }
-// };
-
-// Record clock-out with fingerprint
 exports.clockOut = async (req, res) => {
   try {
     const { fingerprint, staffId } = req.body;

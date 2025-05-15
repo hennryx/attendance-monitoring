@@ -1,42 +1,56 @@
+// service/fingerprintService.js
 const axios = require("axios");
-const FingerPrint = require("../models/FingerPrint"); // Update path as needed
+const FingerPrint = require("../models/FingerPrint");
 const Users = require("../models/Users");
 
-const FINGERPRINT_SERVER_URL = "http://localhost:5500"; // Update with your Python server URL
+const FINGERPRINT_SERVER_URL = "http://localhost:5500"; // Python server URL
 
 /**
  * Service for interacting with the fingerprint Python server and MongoDB
  */
 class FingerprintService {
   /**
-   * Process and enroll a new fingerprint
-   * @param {Object} data Object containing staffId and fingerPrint base64 data
+   * Process and enroll a new fingerprint with multiple scans
+   * @param {Object} data Object containing staffId, email and fingerprints array of base64 data
    * @returns {Promise<Object>} Result of the enrollment
    */
   async enrollFingerprint(data) {
     try {
-      const { staffId, fingerPrint } = data;
+      const { staffId, fingerprints, email } = data;
 
-      if (!staffId || !fingerPrint) {
+      if (
+        !staffId ||
+        !fingerprints ||
+        !Array.isArray(fingerprints) ||
+        fingerprints.length === 0
+      ) {
         throw new Error("Missing staffId or fingerprint data");
       }
 
-      // First, process the fingerprint with the Python server to get templates
+      if (fingerprints.length < 2) {
+        throw new Error(
+          "At least 2 fingerprint scans are required for registration"
+        );
+      }
+
+      // Process the fingerprints with the Python server
       const processResponse = await axios.post(
-        `${FINGERPRINT_SERVER_URL}/api/fingerprint/process`,
+        `${FINGERPRINT_SERVER_URL}/api/fingerprint/process-multiple`,
         {
-          fingerPrint,
+          staffId,
+          email,
+          fingerprints,
         }
       );
 
       if (!processResponse.data.success) {
         throw new Error(
-          processResponse.data.message || "Failed to process fingerprint"
+          processResponse.data.message || "Failed to process fingerprints"
         );
       }
 
-      // Extract templates from the response
-      const { template, original_template, quality_score } =
+      // Extract data from response
+      const { template, original_template, quality_score, saved_files } =
         processResponse.data;
 
       // Check if staff ID already exists in the fingerprint collection
@@ -44,11 +58,11 @@ class FingerprintService {
 
       if (existingRecord) {
         // Update existing record
-        existingRecord.original = fingerPrint;
         existingRecord.template = template;
         existingRecord.original_template = original_template;
         existingRecord.quality_score = quality_score;
-        existingRecord.enrolled_at = new Date();
+        existingRecord.file_paths = saved_files;
+        existingRecord.updated_at = new Date();
 
         await existingRecord.save();
         return {
@@ -60,10 +74,11 @@ class FingerprintService {
         // Create new record
         const newFingerprint = new FingerPrint({
           staffId,
-          original: fingerPrint,
           template,
           original_template,
           quality_score,
+          file_paths: saved_files,
+          scan_count: fingerprints.length,
           enrolled_at: new Date(),
         });
 
@@ -80,6 +95,40 @@ class FingerprintService {
         success: false,
         message: error.message || "Failed to enroll fingerprint",
       };
+    }
+  }
+
+  /**
+   * Process a single fingerprint for initial analysis without saving
+   * @param {Object} data Object containing fingerPrint base64 data
+   * @returns {Promise<Object>} Result of the processing
+   */
+  async processFingerprint(data) {
+    try {
+      const { fingerPrint } = data;
+
+      if (!fingerPrint) {
+        throw new Error("Missing fingerprint data");
+      }
+
+      // Process the fingerprint with the Python server
+      const processResponse = await axios.post(
+        `${FINGERPRINT_SERVER_URL}/api/fingerprint/process`,
+        {
+          fingerPrint,
+        }
+      );
+
+      if (!processResponse.data.success) {
+        throw new Error(
+          processResponse.data.message || "Failed to process fingerprint"
+        );
+      }
+
+      return processResponse.data;
+    } catch (error) {
+      console.error("Fingerprint processing error:", error);
+      throw error;
     }
   }
 
@@ -111,7 +160,6 @@ class FingerprintService {
       const templates = fingerprintRecords.map((record) => ({
         staffId: record.staffId,
         template: record.template,
-        original_template: record.original_template,
       }));
 
       // Send to Python server for matching
@@ -125,8 +173,8 @@ class FingerprintService {
 
       // If a match is found, fetch the user data
       if (matchResponse.data.success && matchResponse.data.matched) {
-        // You can expand this to include more user data if needed
-        const userData = await getUserData(matchResponse.data.staffId);
+        // Get user data
+        const userData = await this.getUserData(matchResponse.data.staffId);
 
         return {
           ...matchResponse.data,
@@ -146,59 +194,78 @@ class FingerprintService {
   }
 
   /**
+   * Verify a fingerprint against a specific staff ID
+   * @param {Object} data Object containing fingerPrint and staffId
+   * @returns {Promise<Object>} Result of the verification
+   */
+  async verifyFingerprint(data) {
+    try {
+      const { fingerPrint, staffId } = data;
+
+      if (!fingerPrint || !staffId) {
+        throw new Error("Missing fingerprint data or staff ID");
+      }
+
+      // Get the specific staff member's template
+      const record = await FingerPrint.findOne({ staffId }).lean();
+
+      if (!record) {
+        return {
+          success: false,
+          verified: false,
+          message: "No fingerprint enrolled for this staff member",
+        };
+      }
+
+      // Send to Python server for matching
+      const verifyResponse = await axios.post(
+        `${FINGERPRINT_SERVER_URL}/api/fingerprint/match`,
+        {
+          fingerPrint,
+          templates: [{ staffId: record.staffId, template: record.template }],
+        }
+      );
+
+      if (verifyResponse.data.success && verifyResponse.data.matched) {
+        // Make sure the matched ID is the same as the requested ID
+        if (verifyResponse.data.staffId == staffId) {
+          return {
+            success: true,
+            verified: true,
+            staffId: staffId,
+            score: verifyResponse.data.score,
+            confidence: verifyResponse.data.confidence,
+          };
+        }
+      }
+
+      return {
+        success: false,
+        verified: false,
+        message: "Fingerprint verification failed",
+      };
+    } catch (error) {
+      console.error("Fingerprint verification error:", error);
+      return {
+        success: false,
+        verified: false,
+        message: error.message || "Failed to verify fingerprint",
+      };
+    }
+  }
+
+  /**
    * Re-process all stored fingerprints to update templates
    * @returns {Promise<Object>} Result of the update process
    */
   async updateAllTemplates() {
     try {
-      // Fetch all fingerprint records from the database
-      const fingerprintRecords = await FingerPrint.find();
+      // Call the server to update all templates
+      const response = await axios.post(
+        `${FINGERPRINT_SERVER_URL}/api/fingerprint/update-templates`
+      );
 
-      let updatedCount = 0;
-      let errorCount = 0;
-
-      for (const record of fingerprintRecords) {
-        try {
-          // Skip records without original fingerprint data
-          if (!record.original) {
-            continue;
-          }
-
-          // Process the fingerprint with the Python server
-          const processResponse = await axios.post(
-            `${FINGERPRINT_SERVER_URL}/api/fingerprint/process`,
-            {
-              fingerPrint: record.original,
-            }
-          );
-
-          if (processResponse.data.success) {
-            // Update the record with new templates
-            record.template = processResponse.data.template;
-            record.original_template = processResponse.data.original_template;
-            record.quality_score = processResponse.data.quality_score;
-            record.updated_at = new Date();
-
-            await record.save();
-            updatedCount++;
-          } else {
-            errorCount++;
-          }
-        } catch (err) {
-          console.error(
-            `Error updating templates for staffId ${record.staffId}:`,
-            err
-          );
-          errorCount++;
-        }
-      }
-
-      return {
-        success: true,
-        message: `Updated ${updatedCount} fingerprint templates. ${errorCount} errors.`,
-        updatedCount,
-        errorCount,
-      };
+      return response.data;
     } catch (error) {
       console.error("Template update error:", error);
       return {
@@ -207,16 +274,25 @@ class FingerprintService {
       };
     }
   }
-}
 
-// Helper function to get user data
-async function getUserData(staffId) {
-  try {
-    const user = await Users.findById(staffId);
-    return user ? { name: user.firstname, email: user.email } : null;
-  } catch (error) {
-    console.error("Error fetching user data:", error);
-    return null;
+  /**
+   * Get user data by staff ID
+   * @param {string} staffId Staff ID
+   * @returns {Promise<Object|null>} User data or null
+   */
+  async getUserData(staffId) {
+    try {
+      const user = await Users.findById(staffId);
+      return user
+        ? {
+            name: user.firstname,
+            email: user.email,
+          }
+        : null;
+    } catch (error) {
+      console.error("Error fetching user data:", error);
+      return null;
+    }
   }
 }
 

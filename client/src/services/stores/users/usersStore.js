@@ -90,23 +90,42 @@ const useUsersStore = create((set, get) => ({
   enrollFingerPrint: async (data, token) => {
     set({ isLoading: true, message: "", isSuccess: false });
 
+    // Check that data has the required fingerprints array
+    if (
+      !data.fingerprints ||
+      !Array.isArray(data.fingerprints) ||
+      data.fingerprints.length < 2
+    ) {
+      set({
+        isLoading: false,
+        message: "At least 2 fingerprint scans are required",
+        isSuccess: false,
+      });
+      return;
+    }
+
     try {
       const res = await axiosTools.creteData("users/enroll", data, token);
 
       set({
         isSuccess: res.success,
         isLoading: false,
-        message: res.message,
+        message: res.message || "Fingerprint enrolled successfully!",
       });
+
+      return res;
     } catch (error) {
       set({
         isLoading: false,
-        message: error,
+        message: error.message || "Failed to enroll fingerprint",
         isSuccess: false,
       });
+
+      throw error;
     }
   },
 
+  // Update to matchFingerPrint function
   matchFingerPrint: async (data) => {
     set({ isLoading: true, message: "", isSuccess: false, isMatched: false });
 
@@ -116,19 +135,24 @@ const useUsersStore = create((set, get) => ({
       set({
         isSuccess: res.success,
         isLoading: false,
-        message: res.message,
+        message: res.message || "Fingerprint matching complete",
         userFound: res.userData,
         isMatched: res.matched,
       });
+
+      return res;
     } catch (error) {
       set({
         isLoading: false,
-        message: error,
+        message: error.message || "Failed to match fingerprint",
         isSuccess: false,
       });
+
+      throw error;
     }
   },
 
+  // Add a new verifyFingerPrint function
   verifyFingerPrint: async (data) => {
     set({ isLoading: true, message: "", isSuccess: false });
 
@@ -138,14 +162,20 @@ const useUsersStore = create((set, get) => ({
       set({
         isSuccess: res.success,
         isLoading: false,
-        message: res.message,
+        message: res.message || "Fingerprint verification complete",
+        isVerified: res.verified,
+        userData: res.userData,
       });
+
+      return res;
     } catch (error) {
       set({
         isLoading: false,
-        message: error,
+        message: error.message || "Failed to verify fingerprint",
         isSuccess: false,
       });
+
+      throw error;
     }
   },
 

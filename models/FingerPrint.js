@@ -4,26 +4,11 @@ const FingerPrintSchema = new mongoose.Schema(
   {
     staffId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
+      ref: "Users",
       required: true,
     },
 
-    // Original base64 fingerprint data (renamed from fingerPrint to original for consistency)
-    original: {
-      type: String,
-      required: true,
-      validate: {
-        validator: function (v) {
-          // Basic check for Base64 string format
-          return /^([A-Za-z0-9+/]{4})*([A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
-            v
-          );
-        },
-        message: (props) => `${props.value} is not a valid Base64 string!`,
-      },
-    },
-
-    // Enhanced template using new algorithm
+    // Enhanced template with multiple features
     template: {
       type: Object,
       required: true,
@@ -35,7 +20,20 @@ const FingerPrintSchema = new mongoose.Schema(
       required: true,
     },
 
-    // Specific enrollment timestamp
+    // Paths to fingerprint image files
+    file_paths: {
+      type: [String],
+      default: [],
+    },
+
+    // Number of scans used to create the template
+    scan_count: {
+      type: Number,
+      default: 1,
+      min: 1,
+    },
+
+    // For enrollment tracking
     enrolled_at: {
       type: Date,
       default: Date.now,

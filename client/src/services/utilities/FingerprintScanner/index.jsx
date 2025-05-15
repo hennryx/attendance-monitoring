@@ -9,6 +9,7 @@ export const useFingerprintScanner = () => {
   const [acquisitionStarted, setAcquisitionStarted] = useState(false);
   const [scanQuality, setScanQuality] = useState("");
   const [isInitialized, setIsInitialized] = useState(false);
+  const [lastError, setLastError] = useState(null);
 
   // Function to initialize SDK - can be called to re-attempt initialization
   const initializeSdk = useCallback(async () => {
@@ -21,7 +22,7 @@ export const useFingerprintScanner = () => {
         // Set up event handlers
         fingerprintSdk.onDeviceConnected = (e) => {
           console.log("Device connected:", e);
-          setStatus("Device connected. Scan your finger.");
+          setStatus("Device connected. Ready to scan.");
         };
 
         fingerprintSdk.onDeviceDisconnected = (e) => {
@@ -35,6 +36,7 @@ export const useFingerprintScanner = () => {
           console.log("Communication failed:", e);
           setStatus("Communication failed");
           setAcquisitionStarted(false);
+          setLastError("Communication with the reader failed");
         };
 
         fingerprintSdk.onSamplesAcquired = (s) => {
@@ -50,10 +52,18 @@ export const useFingerprintScanner = () => {
               setFingerprint(base64Image);
               setStatus("Fingerprint captured successfully");
 
+              // Calculate simple quality estimate based on image clarity
+              const qualityScore =
+                s.quality !== undefined
+                  ? window.Fingerprint.QualityCode[s.quality]
+                  : "Good";
+              setScanQuality(qualityScore);
+
               stopCapture();
             } else {
               console.error("No sample data in response");
               setStatus("No sample data received");
+              setLastError("No sample data received");
             }
           } catch (error) {
             console.error("Error processing sample:", error, s);
@@ -71,13 +81,15 @@ export const useFingerprintScanner = () => {
               console.error("Second attempt failed:", innerError);
             }
             setStatus(`Error processing sample: ${error.message}`);
+            setLastError(error.message);
           }
         };
 
         fingerprintSdk.onQualityReported = (e) => {
           console.log("Quality reported:", e);
           if (window.Fingerprint.QualityCode && e.quality !== undefined) {
-            setScanQuality(window.Fingerprint.QualityCode[e.quality]);
+            const qualityCode = window.Fingerprint.QualityCode[e.quality];
+            setScanQuality(qualityCode);
           }
         };
 
@@ -88,6 +100,7 @@ export const useFingerprintScanner = () => {
         } catch (error) {
           console.error("Failed to enumerate devices:", error);
           setStatus(`Failed to find readers: ${error.message}`);
+          setLastError(error.message);
         }
 
         return true;
@@ -95,11 +108,13 @@ export const useFingerprintScanner = () => {
         setStatus(
           "Fingerprint SDK not available. Make sure you've included the SDK scripts."
         );
+        setLastError("Fingerprint SDK not available");
         return false;
       }
     } catch (error) {
       console.error("Error initializing SDK:", error);
       setStatus(`Error initializing SDK: ${error.message}`);
+      setLastError(error.message);
       return false;
     }
   }, []);
@@ -140,11 +155,13 @@ export const useFingerprintScanner = () => {
       } else {
         console.error("Invalid readers response:", readersArray);
         setStatus("Failed to enumerate devices: Invalid response");
+        setLastError("Invalid response from reader");
         return [];
       }
     } catch (error) {
       console.error("Error getting readers:", error);
       setStatus(`Error getting readers: ${error.message}`);
+      setLastError(error.message);
       throw error;
     }
   };
@@ -153,11 +170,13 @@ export const useFingerprintScanner = () => {
   const startCapture = async () => {
     if (!sdk) {
       setStatus("SDK not initialized");
+      setLastError("SDK not initialized");
       return false;
     }
 
     if (!selectedReader) {
       setStatus("No reader selected");
+      setLastError("No reader selected");
       return false;
     }
 
@@ -180,6 +199,7 @@ export const useFingerprintScanner = () => {
     } catch (error) {
       console.error("Error starting capture:", error);
       setStatus(`Error starting capture: ${error.message}`);
+      setLastError(error.message);
       return false;
     }
   };
@@ -195,6 +215,7 @@ export const useFingerprintScanner = () => {
     } catch (error) {
       console.error("Error stopping capture:", error);
       setStatus(`Error stopping capture: ${error.message}`);
+      setLastError(error.message);
       return false;
     }
   };
@@ -204,6 +225,7 @@ export const useFingerprintScanner = () => {
     setFingerprint(null);
     setScanQuality("");
     setStatus("Ready to scan");
+    setLastError(null);
   };
 
   // Scan fingerprint and return result with timeout
@@ -215,6 +237,7 @@ export const useFingerprintScanner = () => {
       try {
         setAcquisitionStarted(false);
         setStatus("Ready to scan");
+        setLastError(null);
 
         if (!sdk) {
           const initialized = await initializeSdk();
@@ -263,6 +286,7 @@ export const useFingerprintScanner = () => {
             } else {
               console.error("No sample data in response");
               setStatus("No sample data received");
+              setLastError("No sample data received");
             }
           } catch (error) {
             console.error(
@@ -288,6 +312,7 @@ export const useFingerprintScanner = () => {
             }
 
             setStatus(`Error processing sample: ${error.message}`);
+            setLastError(error.message);
           }
 
           if (originalSamplesCallback) {
@@ -299,6 +324,7 @@ export const useFingerprintScanner = () => {
         sdk.onCommunicationFailed = (e) => {
           console.error("Communication failed during scan:", e);
           setStatus("Communication failed during scan");
+          setLastError("Communication with the fingerprint reader failed");
 
           stopCapture().then(() => {
             cleanup();
@@ -330,6 +356,7 @@ export const useFingerprintScanner = () => {
       } catch (error) {
         console.error("Unexpected error in scanFingerprint:", error);
         stopCapture();
+        setLastError(error.message);
         reject(new Error(`Scan failed: ${error.message}`));
       }
     });
@@ -341,10 +368,12 @@ export const useFingerprintScanner = () => {
       if (sdk && acquisitionStarted) {
         await stopCapture();
       }
+      setLastError(null);
       return await initializeSdk();
     } catch (error) {
       console.error("Error refreshing SDK:", error);
       setStatus(`Error refreshing SDK: ${error.message}`);
+      setLastError(error.message);
       return false;
     }
   };
@@ -363,6 +392,7 @@ export const useFingerprintScanner = () => {
     refreshSdk,
     isInitialized,
     scanQuality,
-    resetFingerprint, // New function to reset fingerprint state
+    resetFingerprint,
+    lastError,
   };
 };

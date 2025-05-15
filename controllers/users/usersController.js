@@ -92,7 +92,7 @@ exports.deleteUser = async (req, res) => {
 
 exports.enrollUSer = async (req, res) => {
   try {
-    const { staffId, fingerPrint } = req.body;
+    const { staffId, fingerprints, email } = req.body;
 
     if (!staffId) {
       return res.status(400).json({
@@ -102,10 +102,32 @@ exports.enrollUSer = async (req, res) => {
       });
     }
 
-    // Use the fingerprint service to enroll the user
+    if (
+      !fingerprints ||
+      !Array.isArray(fingerprints) ||
+      fingerprints.length < 2
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid Fingerprints",
+        message: "At least 2 fingerprint scans are required",
+      });
+    }
+
+    // Find the user to get their email if not provided
+    let userEmail = email;
+    if (!userEmail) {
+      const user = await Users.findById(staffId);
+      if (user) {
+        userEmail = user.email;
+      }
+    }
+
+    // Use the fingerprint service to enroll using multiple scans
     const enrollResult = await fingerprintService.enrollFingerprint({
       staffId,
-      fingerPrint,
+      fingerprints,
+      email: userEmail,
     });
 
     if (!enrollResult.success) {
@@ -129,24 +151,29 @@ exports.enrollUSer = async (req, res) => {
       quality_score: enrollResult.quality_score,
     });
   } catch (error) {
+    console.error("Fingerprint enrollment error:", error);
     res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message || "Failed to enroll fingerprint",
     });
   }
 };
 
+// Updated matchFingerprint function
 exports.matchFingerprint = async (req, res) => {
   try {
     const { fingerPrint } = req.body;
 
     if (!fingerPrint) {
-      return res.status(400).json({ error: "Missing fingerprint data" });
+      return res.status(400).json({
+        success: false,
+        error: "Missing fingerprint data",
+      });
     }
 
     console.log("Matching fingerprint...");
 
-    // Use the fingerprint service to match the fingerprint
+    // Use the fingerprint service to match
     const matchResult = await fingerprintService.matchFingerprint({
       fingerPrint,
     });
@@ -173,12 +200,66 @@ exports.matchFingerprint = async (req, res) => {
         confidence: matchResult.confidence,
       });
     } else {
-      console.log(`No match found. Best score: ${matchResult.bestScore}`);
+      console.log(`No match found. Best score: ${matchResult.bestScore || 0}`);
       res.status(404).json({
         success: false,
         matched: false,
         message: matchResult.message || "No match found.",
-        bestScore: matchResult.bestScore,
+        bestScore: matchResult.bestScore || 0,
+      });
+    }
+  } catch (error) {
+    console.error("Error matching fingerprint:", error);
+    res.status(500).json({
+      success: false,
+      error: "Server error",
+      message: error.message,
+    });
+  }
+};
+
+// Add a new function to verify a specific fingerprint (useful for attendance)
+exports.verifyFingerprint = async (req, res) => {
+  try {
+    const { fingerPrint, staffId } = req.body;
+
+    if (!fingerPrint || !staffId) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing Data",
+        message: "Both fingerprint data and staff ID are required",
+      });
+    }
+
+    // Use the verification function
+    const verifyResult = await fingerprintService.verifyFingerprint({
+      fingerPrint,
+      staffId,
+    });
+
+    if (verifyResult.verified) {
+      const user = await Users.findById(staffId);
+
+      res.status(200).json({
+        success: true,
+        verified: true,
+        staffId: staffId,
+        message: "Fingerprint verified successfully!",
+        userData: user
+          ? {
+              name: user.firstname,
+              email: user.email,
+              staffId: user._id,
+            }
+          : null,
+        score: verifyResult.score,
+        confidence: verifyResult.confidence,
+      });
+    } else {
+      res.status(403).json({
+        success: false,
+        verified: false,
+        message: verifyResult.message || "Verification failed.",
       });
     }
   } catch (error) {
@@ -189,10 +270,6 @@ exports.matchFingerprint = async (req, res) => {
       message: error.message,
     });
   }
-};
-
-exports.verifyFingerprint = async (req, res) => {
-  // This method could be implemented if needed
 };
 
 exports.updateFingerprints = async (req, res) => {
