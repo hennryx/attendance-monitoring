@@ -27,12 +27,12 @@ const access = [
     element: AddNewUser,
   },
 
-  {
-    name: "Payroll",
-    path: "/payroll",
-    icon: BsCashStack,
-    element: PayrollManagement,
-  },
+  // {
+  //   name: "Payroll",
+  //   path: "/payroll",
+  //   icon: BsCashStack,
+  //   element: PayrollManagement,
+  // },
 
   {
     name: "Schedules",

@@ -11,18 +11,18 @@ const access = [
     icon: BsGrid1X2,
     element: DashBoard,
   },
-  {
-    name: "My Payroll",
-    path: "/payroll",
-    icon: BsCashStack,
-    element: PayrollView,
-  },
-  {
-    name: "",
-    path: "/payslip/:id",
-    element: PaySlip,
-    hidden: true,
-  },
+  // {
+  //   name: "My Payroll",
+  //   path: "/payroll",
+  //   icon: BsCashStack,
+  //   element: PayrollView,
+  // },
+  // {
+  //   name: "",
+  //   path: "/payslip/:id",
+  //   element: PaySlip,
+  //   hidden: true,
+  // },
 ];
 
 export default access;

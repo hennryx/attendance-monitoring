@@ -197,7 +197,6 @@ exports.matchFingerprint = async (req, res) => {
 
     console.log("Matching fingerprint...");
 
-    // Use the fingerprint service to match
     const matchResult = await fingerprintService.matchFingerprint({
       fingerPrint,
     });
@@ -205,6 +204,8 @@ exports.matchFingerprint = async (req, res) => {
     if (matchResult.matched) {
       const staffId = matchResult.staffId;
       const user = await Users.findById(staffId);
+
+      console.log(user);
 
       console.log(`Match found: ${staffId} with score ${matchResult.score}`);
 
