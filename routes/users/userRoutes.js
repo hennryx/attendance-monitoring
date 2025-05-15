@@ -22,12 +22,15 @@ const fs = require("fs");
 
 const fingerprintStorage = multer.diskStorage({
   destination: function (req, file, cb) {
+    // Use absolute path to ensure consistency
     const uploadDir = path.join(__dirname, "../../assets/fingerprints");
 
+    // Ensure base directory exists
     if (!fs.existsSync(uploadDir)) {
       fs.mkdirSync(uploadDir, { recursive: true });
     }
 
+    // Create staff-specific directory if staffId is provided
     if (req.body.staffId) {
       const staffDir = path.join(uploadDir, req.body.staffId);
       if (!fs.existsSync(staffDir)) {
@@ -39,18 +42,30 @@ const fingerprintStorage = multer.diskStorage({
     }
   },
   filename: function (req, file, cb) {
+    // Generate a unique filename
     const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
-    const ext = path.extname(file.originalname) || ".png";
-    cb(null, "fingerprint-" + uniqueSuffix + ext);
+
+    // Get file extension or default to .png
+    let ext = path.extname(file.originalname);
+    if (!ext || ext === "") {
+      ext = ".png";
+    }
+
+    // Create the filename
+    const filename = "fingerprint-" + uniqueSuffix + ext;
+
+    console.log(`Saving fingerprint file: ${filename}`);
+    cb(null, filename);
   },
 });
 
 const uploadFingerprints = multer({
   storage: fingerprintStorage,
   limits: {
-    fileSize: 5 * 1024 * 1024,
+    fileSize: 5 * 1024 * 1024, // 5MB limit
   },
   fileFilter: (req, file, cb) => {
+    // Only allow image files
     if (file.mimetype.startsWith("image/")) {
       cb(null, true);
     } else {

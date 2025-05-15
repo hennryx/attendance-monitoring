@@ -93,7 +93,18 @@ exports.deleteUser = async (req, res) => {
 exports.enrollUSer = async (req, res) => {
   try {
     const { staffId, email } = req.body;
-    const files = req.files; // This will contain the uploaded fingerprint files
+    const files = req.files; // Uploaded fingerprint files
+
+    // Added for direct enrollment
+    const fingerprints = req.body.fingerprints
+      ? typeof req.body.fingerprints === "string"
+        ? JSON.parse(req.body.fingerprints)
+        : req.body.fingerprints
+      : [];
+
+    console.log(
+      `Enrolling user fingerprint: staffId=${staffId}, files=${files?.length}, direct fingerprints=${fingerprints.length}`
+    );
 
     if (!staffId) {
       return res.status(400).json({
@@ -103,7 +114,11 @@ exports.enrollUSer = async (req, res) => {
       });
     }
 
-    if (!files || files.length < 2) {
+    // Enrollment can work with either direct fingerprints or uploaded files
+    if (
+      (!files || files.length < 2) &&
+      (!fingerprints || fingerprints.length < 2)
+    ) {
       return res.status(400).json({
         success: false,
         error: "Invalid Fingerprints",
@@ -120,40 +135,44 @@ exports.enrollUSer = async (req, res) => {
       }
     }
 
-    // Process the uploaded fingerprint images
-    const fingerprints = files.map((file) => {
-      return {
+    let enrollResult;
+
+    // If we have direct fingerprints, prefer those
+    if (fingerprints && fingerprints.length >= 2) {
+      enrollResult = await fingerprintService.enrollFingerprint({
+        staffId,
+        fingerprints,
+        email: userEmail,
+      });
+    }
+    // Otherwise use uploaded files
+    else if (files && files.length >= 2) {
+      // Convert files to data required by the service
+      const processedFiles = files.map((file) => ({
         path: file.path,
         filename: file.filename,
-      };
-    });
+      }));
 
-    // Pass the file paths to the fingerprint service instead of base64 data
-    const enrollResult = await fingerprintService.enrollFingerprintFromFiles({
-      staffId,
-      fingerprints,
-      email: userEmail,
-    });
-
-    if (!enrollResult.success) {
-      return res.status(400).json({
-        success: false,
-        message: enrollResult.message || "User Fingerprint Enrollment failed!",
+      enrollResult = await fingerprintService.enrollFingerprintFromFiles({
+        staffId,
+        fingerprints: processedFiles,
+        email: userEmail,
       });
     }
 
-    // Update the user record to indicate they have a fingerprint
-    await Users.findByIdAndUpdate(
-      { _id: staffId },
-      { hasFingerPrint: true },
-      { new: true }
-    );
+    if (!enrollResult || !enrollResult.success) {
+      return res.status(400).json({
+        success: false,
+        message: enrollResult?.message || "User Fingerprint Enrollment failed!",
+      });
+    }
 
     res.status(200).json({
       success: true,
       message:
         enrollResult.message || "User Fingerprint Enrolled successfully!",
       quality_score: enrollResult.quality_score,
+      duration: enrollResult.duration,
     });
   } catch (error) {
     console.error("Fingerprint enrollment error:", error);

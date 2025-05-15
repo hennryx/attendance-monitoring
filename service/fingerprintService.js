@@ -33,6 +33,11 @@ class FingerprintService {
         );
       }
 
+      console.log(
+        `Starting enrollment for staffId ${staffId} with ${fingerprints.length} scans`
+      );
+      const startTime = Date.now();
+
       // Process the fingerprints with the Python server
       const processResponse = await axios.post(
         `${FINGERPRINT_SERVER_URL}/api/fingerprint/process-multiple`,
@@ -40,6 +45,10 @@ class FingerprintService {
           staffId,
           email,
           fingerprints,
+        },
+        {
+          // Add timeout to prevent long-running requests
+          timeout: 10000,
         }
       );
 
@@ -65,10 +74,18 @@ class FingerprintService {
         existingRecord.updated_at = new Date();
 
         await existingRecord.save();
+
+        // Update user flag synchronously
+        await Users.findByIdAndUpdate(staffId, { hasFingerPrint: true });
+
+        const duration = Date.now() - startTime;
+        console.log(`Fingerprint updated in ${duration}ms`);
+
         return {
           success: true,
           message: "Fingerprint updated successfully!",
           quality_score: quality_score,
+          duration,
         };
       } else {
         // Create new record
@@ -83,10 +100,18 @@ class FingerprintService {
         });
 
         await newFingerprint.save();
+
+        // Update user flag
+        await Users.findByIdAndUpdate(staffId, { hasFingerPrint: true });
+
+        const duration = Date.now() - startTime;
+        console.log(`Fingerprint enrolled in ${duration}ms`);
+
         return {
           success: true,
           message: "Fingerprint enrolled successfully!",
           quality_score: quality_score,
+          duration,
         };
       }
     } catch (error) {
@@ -122,10 +147,13 @@ class FingerprintService {
         );
       }
 
-      // Create an array of file paths to send to the Python server
+      console.log(
+        "Enrolling fingerprints from files:",
+        fingerprints.map((fp) => fp.path)
+      );
+
       const filePaths = fingerprints.map((fp) => fp.path);
 
-      // Process the fingerprints with the Python server
       const processResponse = await axios.post(
         `${FINGERPRINT_SERVER_URL}/api/fingerprint/process-multiple`,
         {
@@ -148,16 +176,29 @@ class FingerprintService {
       // Check if staff ID already exists in the fingerprint collection
       let existingRecord = await FingerPrint.findOne({ staffId });
 
+      // Prepare file paths to save - either use paths from Python server or generate relative paths
+      const relativePaths =
+        saved_files ||
+        fingerprints.map((fp) => {
+          // Convert absolute path to relative path from assets directory
+          const assetIndex = fp.path.indexOf("assets");
+          return assetIndex !== -1 ? fp.path.substring(assetIndex) : fp.path;
+        });
+
       if (existingRecord) {
         // Update existing record
         existingRecord.template = template;
         existingRecord.original_template = original_template;
         existingRecord.quality_score = quality_score;
-        existingRecord.file_paths =
-          saved_files || fingerprints.map((fp) => fp.path);
+        existingRecord.file_paths = relativePaths;
+        existingRecord.scan_count = fingerprints.length;
         existingRecord.updated_at = new Date();
 
         await existingRecord.save();
+
+        // Update the user's hasFingerPrint flag
+        await Users.findByIdAndUpdate(staffId, { hasFingerPrint: true });
+
         return {
           success: true,
           message: "Fingerprint updated successfully!",
@@ -170,12 +211,16 @@ class FingerprintService {
           template,
           original_template,
           quality_score,
-          file_paths: saved_files || fingerprints.map((fp) => fp.path),
+          file_paths: relativePaths,
           scan_count: fingerprints.length,
           enrolled_at: new Date(),
         });
 
         await newFingerprint.save();
+
+        // Update the user's hasFingerPrint flag
+        await Users.findByIdAndUpdate(staffId, { hasFingerPrint: true });
+
         return {
           success: true,
           message: "Fingerprint enrolled successfully!",
@@ -238,6 +283,9 @@ class FingerprintService {
         throw new Error("Missing fingerprint data");
       }
 
+      console.log("Starting fingerprint matching process");
+      const startTime = Date.now();
+
       // Fetch all fingerprint records from the database
       const fingerprintRecords = await FingerPrint.find().lean();
 
@@ -249,20 +297,40 @@ class FingerprintService {
         };
       }
 
-      // Format the templates for the matching API
-      const templates = fingerprintRecords.map((record) => ({
-        staffId: record.staffId,
-        template: record.template,
-      }));
+      // Organize templates by staffId for better grouping
+      const templatesByStaff = {};
+      for (const record of fingerprintRecords) {
+        const staffId = record.staffId.toString();
+
+        // Initialize array for this staff if not exists
+        if (!templatesByStaff[staffId]) {
+          templatesByStaff[staffId] = [];
+        }
+
+        // Add this template to the staff's collection
+        templatesByStaff[staffId].push({
+          staffId: staffId,
+          template: record.template,
+        });
+      }
+
+      console.log(
+        `Found ${
+          Object.keys(templatesByStaff).length
+        } unique staff members with fingerprints`
+      );
 
       // Send to Python server for matching
       const matchResponse = await axios.post(
         `${FINGERPRINT_SERVER_URL}/api/fingerprint/match`,
         {
           fingerPrint,
-          templates,
+          templates: Object.values(templatesByStaff).flat(),
         }
       );
+
+      const matchTime = Date.now() - startTime;
+      console.log(`Fingerprint matching completed in ${matchTime}ms`);
 
       // If a match is found, fetch the user data
       if (matchResponse.data.success && matchResponse.data.matched) {
@@ -272,10 +340,14 @@ class FingerprintService {
         return {
           ...matchResponse.data,
           userData,
+          matchTime,
         };
       }
 
-      return matchResponse.data;
+      return {
+        ...matchResponse.data,
+        matchTime,
+      };
     } catch (error) {
       console.error("Fingerprint matching error:", error);
       return {

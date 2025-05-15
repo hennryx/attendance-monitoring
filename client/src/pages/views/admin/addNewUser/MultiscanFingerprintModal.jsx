@@ -279,21 +279,30 @@ export const MultiFingerprintModal = ({
       formData.append("staffId", staffId);
       if (staffEmail) formData.append("email", staffEmail);
 
-      // Add all fingerprint files
-      fingerprintFiles.forEach((file) => {
-        formData.append("fingerprintFiles", file);
-      });
-
-      // For backward compatibility, also include the base64 data
+      // OPTIMIZATION: Use direct base64 strings instead of file uploads
+      // This is much faster than file uploads since it avoids the Node.js file handling overhead
       formData.append("fingerprints", JSON.stringify(capturedSamples));
 
+      // Skip file uploads for speed
+      // fingerprintFiles.forEach((file) => {
+      //   formData.append("fingerprintFiles", file);
+      // });
+
+      console.log(
+        `Sending fingerprint enrollment request with ${capturedSamples.length} scans`
+      );
+
       // Call the capture callback with FormData
+      const startTime = Date.now();
       await onCapture(formData);
+      const duration = Date.now() - startTime;
 
       // Success message
       Swal.fire({
         title: "Registration Complete",
-        text: "Fingerprints registered successfully!",
+        text: `Fingerprints registered successfully in ${(
+          duration / 1000
+        ).toFixed(1)} seconds!`,
         icon: "success",
       });
 
