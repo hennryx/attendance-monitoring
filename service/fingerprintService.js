@@ -3,7 +3,7 @@ const axios = require("axios");
 const FingerPrint = require("../models/FingerPrint");
 const Users = require("../models/Users");
 
-const FINGERPRINT_SERVER_URL = "http://localhost:5500"; // Python server URL
+const FINGERPRINT_SERVER_URL = "http://localhost:5500";
 
 /**
  * Service for interacting with the fingerprint Python server and MongoDB

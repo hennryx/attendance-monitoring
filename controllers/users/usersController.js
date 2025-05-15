@@ -114,7 +114,6 @@ exports.enrollUSer = async (req, res) => {
       });
     }
 
-    // Enrollment can work with either direct fingerprints or uploaded files
     if (
       (!files || files.length < 2) &&
       (!fingerprints || fingerprints.length < 2)
@@ -126,7 +125,6 @@ exports.enrollUSer = async (req, res) => {
       });
     }
 
-    // Find the user to get their email if not provided
     let userEmail = email;
     if (!userEmail) {
       const user = await Users.findById(staffId);
@@ -137,17 +135,13 @@ exports.enrollUSer = async (req, res) => {
 
     let enrollResult;
 
-    // If we have direct fingerprints, prefer those
     if (fingerprints && fingerprints.length >= 2) {
       enrollResult = await fingerprintService.enrollFingerprint({
         staffId,
         fingerprints,
         email: userEmail,
       });
-    }
-    // Otherwise use uploaded files
-    else if (files && files.length >= 2) {
-      // Convert files to data required by the service
+    } else if (files && files.length >= 2) {
       const processedFiles = files.map((file) => ({
         path: file.path,
         filename: file.filename,
@@ -183,7 +177,6 @@ exports.enrollUSer = async (req, res) => {
   }
 };
 
-// Updated matchFingerprint function
 exports.matchFingerprint = async (req, res) => {
   try {
     const { fingerPrint } = req.body;
@@ -243,7 +236,6 @@ exports.matchFingerprint = async (req, res) => {
   }
 };
 
-// Add a new function to verify a specific fingerprint (useful for attendance)
 exports.verifyFingerprint = async (req, res) => {
   try {
     const { fingerPrint, staffId } = req.body;
@@ -256,7 +248,6 @@ exports.verifyFingerprint = async (req, res) => {
       });
     }
 
-    // Use the verification function
     const verifyResult = await fingerprintService.verifyFingerprint({
       fingerPrint,
       staffId,
@@ -299,7 +290,6 @@ exports.verifyFingerprint = async (req, res) => {
 
 exports.updateFingerprints = async (req, res) => {
   try {
-    // Update all fingerprint templates in the database
     const result = await fingerprintService.updateAllTemplates();
 
     res.status(200).json(result);
