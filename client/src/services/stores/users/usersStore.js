@@ -146,7 +146,7 @@ const useUsersStore = create((set, get) => ({
         fingerPrintProvided: !!requestData.fingerPrint,
       });
 
-      // Use the saveData function to send the request
+      // Use direct API call to bypass FormData conversion
       const res = await axiosTools.saveData(
         "users/enroll-single",
         requestData,

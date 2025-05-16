@@ -1,8 +1,16 @@
+const fs = require("fs");
+const path = require("path");
 const axios = require("axios");
 const FingerPrint = require("../models/FingerPrint");
 const Users = require("../models/Users");
 
 const FINGERPRINT_SERVER_URL = "http://localhost:5500"; // Python server URL
+const FINGERPRINT_DIR = path.join(__dirname, "../assets/fingerprints");
+
+// Ensure fingerprint directory exists
+if (!fs.existsSync(FINGERPRINT_DIR)) {
+  fs.mkdirSync(FINGERPRINT_DIR, { recursive: true });
+}
 
 /**
  * Simplified fingerprint service for interacting with the Python server and MongoDB
@@ -36,7 +44,7 @@ class FingerprintService {
         },
         {
           // Add timeout to prevent long-running requests
-          timeout: 30000,
+          timeout: 60000,
         }
       );
 
@@ -46,8 +54,11 @@ class FingerprintService {
         );
       }
 
+      console.log(processResponse.data);
+
       // Extract data from response
-      const { template, quality_score, file_path } = processResponse.data;
+      const { template, quality_score, processed_fingerprint } =
+        processResponse.data;
 
       // Add quality validation
       if (quality_score < 40) {
@@ -58,6 +69,28 @@ class FingerprintService {
         };
       }
 
+      // Generate filename based on staffId
+      const filename = `${staffId}.png`;
+      const filePath = path.join(FINGERPRINT_DIR, filename);
+
+      // Check if file already exists and delete it
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+        console.log(
+          `Deleted existing fingerprint file for staffId: ${staffId}`
+        );
+      }
+      console.log("Processed fingerprint value:", processed_fingerprint);
+
+      let base64Data = processed_fingerprint;
+
+      if (typeof base64Data === "string" && base64Data.includes(",")) {
+        base64Data = base64Data.split(",")[1];
+      }
+
+      fs.writeFileSync(filePath, Buffer.from(base64Data, "base64"));
+      console.log(`Saved fingerprint file for staffId: ${staffId}`);
+
       // Check if staff ID already exists in the fingerprint collection
       let existingRecord = await FingerPrint.findOne({ staffId });
 
@@ -66,7 +99,7 @@ class FingerprintService {
         existingRecord.template = template;
         existingRecord.original_template = template; // For backwards compatibility
         existingRecord.quality_score = quality_score;
-        existingRecord.file_paths = [file_path]; // Reset file paths
+        existingRecord.file_paths = [filename]; // Store just the filename
         existingRecord.updated_at = new Date();
         existingRecord.scan_count = 1; // Reset to 1 since we're using single scan
 
@@ -91,7 +124,7 @@ class FingerprintService {
           template,
           original_template: template, // For backwards compatibility
           quality_score,
-          file_paths: [file_path],
+          file_paths: [filename], // Store just the filename
           scan_count: 1,
           enrolled_at: new Date(),
         });

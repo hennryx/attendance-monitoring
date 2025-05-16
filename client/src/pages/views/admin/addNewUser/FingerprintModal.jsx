@@ -204,6 +204,7 @@ export const FingerprintModal = ({
         ? fingerprint.split(",")[1]
         : fingerprint;
 
+      // Send directly to the backend, skipping FormData
       const fingerprintData = {
         staffId: staffId,
         fingerPrint: base64Data,
@@ -211,6 +212,8 @@ export const FingerprintModal = ({
       };
 
       await onCapture(fingerprintData);
+
+      // Close modal after successful capture
       onClose();
     } catch (error) {
       console.error("Failed to register fingerprint:", error);
