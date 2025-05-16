@@ -4,13 +4,14 @@ import axiosTools from "../../utilities/axiosUtils";
 const base = "attendance";
 const useAttendanceStore = create((set, get) => ({
   data: [],
+  attendanceToday: {},
   publicAttendance: [],
   isLoading: false,
   message: "",
   isSuccess: false,
-  attendanceType: null, // "in", "lunch-start", "lunch-end", "out"
-  staffData: null, // Additional staff data returned by the server
-  matchedUser: null, // To store matched user data from fingerprint match
+  attendanceType: null,
+  staffData: null,
+  matchedUser: null,
   isMatched: false,
 
   getAttendance: async (token) => {
@@ -18,6 +19,23 @@ const useAttendanceStore = create((set, get) => ({
       const res = await axiosTools.getData(`${base}/getAll`, "", token);
 
       set({
+        data: res.data,
+        isSuccess: res.success,
+      });
+    } catch (error) {
+      set({
+        isSuccess: false,
+        message: error?.response?.data?.message || "Something went wrong",
+      });
+    }
+  },
+
+  getAttendanceToday: async (token) => {
+    try {
+      const res = await axiosTools.getData(`${base}/today`, "", token);
+
+      set({
+        attendanceToday: res.stats,
         data: res.data,
         isSuccess: res.success,
       });
@@ -49,7 +67,6 @@ const useAttendanceStore = create((set, get) => ({
     }
   },
 
-  // Match fingerprint without recording attendance
   matchFingerprint: async (fingerprint) => {
     set({
       isLoading: true,
@@ -59,7 +76,6 @@ const useAttendanceStore = create((set, get) => ({
     });
 
     try {
-      // Call the fingerprint match endpoint
       const response = await axiosTools.saveData(
         "users/match",
         { fingerPrint: fingerprint },
@@ -100,12 +116,10 @@ const useAttendanceStore = create((set, get) => ({
     }
   },
 
-  // Record attendance with staffId after confirmation
   recordAttendance: async (staffId) => {
     set({ isLoading: true, message: "", isSuccess: false });
 
     try {
-      // This uses the auto-detect attendance endpoint with staffId
       const res = await axiosTools.saveData(
         `${base}/clock-in`,
         { staffId },
@@ -136,45 +150,10 @@ const useAttendanceStore = create((set, get) => ({
     }
   },
 
-  // Auto-detect attendance type and register it
-  // This supports both fingerprint and staffId-based attendance
-  clockIn: async (data) => {
-    set({ isLoading: true, message: "", isSuccess: false });
-
-    try {
-      // This endpoint will auto-detect if it's clock-in, lunch, or clock-out
-      const res = await axiosTools.saveData(`${base}/clock-in`, data, "");
-
-      set({
-        isSuccess: res.success,
-        isLoading: false,
-        message: res.message,
-        attendanceType: res.data?.attendanceType || "in", // Store the detected type
-        staffData: {
-          name: res.data?.staffName,
-          department: res.data?.department,
-          position: res.data?.position,
-        },
-      });
-
-      return res;
-    } catch (error) {
-      set({
-        isLoading: false,
-        message: error.message || "Failed to register attendance",
-        isSuccess: false,
-      });
-
-      return { success: false, message: error.message };
-    }
-  },
-
-  // Method to register attendance with a fingerprint
   fingerprintAttendance: async (fingerprint) => {
     set({ isLoading: true, message: "", isSuccess: false });
 
     try {
-      // This uses the same endpoint but passes fingerprint data
       const res = await axiosTools.saveData(
         `${base}/clock-in`,
         { fingerprint },
@@ -198,79 +177,6 @@ const useAttendanceStore = create((set, get) => ({
       set({
         isLoading: false,
         message: error.message || "Failed to register attendance",
-        isSuccess: false,
-      });
-
-      return { success: false, message: error.message };
-    }
-  },
-
-  // Legacy methods - kept for compatibility
-  clockOut: async (data) => {
-    set({ isLoading: true, message: "", isSuccess: false });
-
-    try {
-      const res = await axiosTools.saveData(`${base}/clock-out`, data);
-
-      set({
-        isSuccess: res.success,
-        isLoading: false,
-        message: res.message,
-      });
-
-      return res;
-    } catch (error) {
-      set({
-        isLoading: false,
-        message: error.message || "Failed to clock out",
-        isSuccess: false,
-      });
-
-      return { success: false, message: error.message };
-    }
-  },
-
-  startLunch: async (data) => {
-    set({ isLoading: true, message: "", isSuccess: false });
-
-    try {
-      const res = await axiosTools.saveData(`${base}/lunch-start`, data, "");
-
-      set({
-        isSuccess: res.success,
-        isLoading: false,
-        message: res.message,
-      });
-
-      return res;
-    } catch (error) {
-      set({
-        isLoading: false,
-        message: error.message || "Failed to start lunch",
-        isSuccess: false,
-      });
-
-      return { success: false, message: error.message };
-    }
-  },
-
-  endLunch: async (data) => {
-    set({ isLoading: true, message: "", isSuccess: false });
-
-    try {
-      const res = await axiosTools.saveData(`${base}/lunch-end`, data, "");
-
-      set({
-        isSuccess: res.success,
-        isLoading: false,
-        message: res.message,
-      });
-
-      return res;
-    } catch (error) {
-      set({
-        isLoading: false,
-        message: error.message || "Failed to end lunch",
         isSuccess: false,
       });
 

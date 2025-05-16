@@ -486,7 +486,6 @@ exports.clockOut = async (req, res) => {
   }
 };
 
-// Record lunch start
 exports.startLunch = async (req, res) => {
   try {
     const { fingerprint, staffId } = req.body;
@@ -585,7 +584,6 @@ exports.startLunch = async (req, res) => {
   }
 };
 
-// Record lunch end
 exports.endLunch = async (req, res) => {
   try {
     const { fingerprint, staffId } = req.body;
@@ -684,7 +682,6 @@ exports.endLunch = async (req, res) => {
   }
 };
 
-// Submit reason for absence or lateness
 exports.submitReason = async (req, res) => {
   try {
     const { attendanceId, reason } = req.body;
@@ -744,7 +741,6 @@ exports.submitReason = async (req, res) => {
   }
 };
 
-// Verify a reason (admin only)
 exports.verifyReason = async (req, res) => {
   try {
     const { attendanceId, verified, notes } = req.body;
@@ -791,7 +787,6 @@ exports.verifyReason = async (req, res) => {
   }
 };
 
-// Get staff attendance for a specific date range
 exports.getStaffAttendance = async (req, res) => {
   try {
     const { staffId, startDate, endDate } = req.query;
@@ -833,7 +828,6 @@ exports.getStaffAttendance = async (req, res) => {
   }
 };
 
-// Get today's attendance for all staff (admin only)
 exports.getTodayAttendance = async (req, res) => {
   try {
     const today = new Date();
@@ -841,7 +835,6 @@ exports.getTodayAttendance = async (req, res) => {
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
-    // Find attendance records for today
     const attendanceRecords = await Attendance.find({
       date: { $gte: today, $lt: tomorrow },
     }).populate(
@@ -849,7 +842,6 @@ exports.getTodayAttendance = async (req, res) => {
       "firstname lastname middlename email department position"
     );
 
-    // Count statistics
     const totalStaff = await Users.countDocuments({
       role: "STAFF",
       status: "active",
@@ -874,6 +866,32 @@ exports.getTodayAttendance = async (req, res) => {
         (!record.reason || record.reason.trim() === "")
     ).length;
 
+    const enhancedRecords = attendanceRecords.map((record) => {
+      const recordObj = record.toObject ? record.toObject() : record;
+
+      let attendanceType = null;
+
+      if (
+        recordObj.timeIn &&
+        !recordObj.lunchStart &&
+        !recordObj.lunchEnd &&
+        !recordObj.timeOut
+      ) {
+        attendanceType = "in";
+      } else if (recordObj.lunchStart && !recordObj.lunchEnd) {
+        attendanceType = "lunch-start";
+      } else if (recordObj.lunchEnd) {
+        attendanceType = "lunch-end";
+      } else if (recordObj.timeOut) {
+        attendanceType = "out";
+      }
+
+      return {
+        ...recordObj,
+        attendanceType,
+      };
+    });
+
     res.status(200).json({
       success: true,
       count: attendanceRecords.length,
@@ -887,7 +905,7 @@ exports.getTodayAttendance = async (req, res) => {
         attendanceRate:
           totalStaff > 0 ? ((present + late + halfDay) / totalStaff) * 100 : 0,
       },
-      data: attendanceRecords,
+      data: enhancedRecords,
     });
   } catch (err) {
     console.error(err);
@@ -899,7 +917,6 @@ exports.getTodayAttendance = async (req, res) => {
   }
 };
 
-// Mark absent for staff who haven't clocked in
 exports.markAbsentees = async (req, res) => {
   try {
     // Default to yesterday if no date provided
@@ -981,19 +998,16 @@ exports.markAbsentees = async (req, res) => {
   }
 };
 
-// Schedule task to automatically mark absences at end of day
 exports.scheduleAbsenteeMarking = () => {
   console.log("Setting up scheduled task for automatic absence marking");
 
   const scheduledTime = "0 20 * * *";
 };
 
-// Get attendance statistics for a specified period
 exports.getAttendanceStats = async (req, res) => {
   try {
     const { startDate, endDate, department } = req.query;
 
-    // Parse dates
     const start = startDate
       ? new Date(startDate)
       : new Date(new Date().setDate(new Date().getDate() - 30));
@@ -1002,22 +1016,18 @@ exports.getAttendanceStats = async (req, res) => {
     const end = endDate ? new Date(endDate) : new Date();
     end.setHours(23, 59, 59, 999);
 
-    // Base query
     let query = {
       date: { $gte: start, $lte: end },
     };
 
-    // Add department filter if provided
     if (department) {
       const staffInDept = await Users.find({ department }).select("_id");
       const staffIds = staffInDept.map((staff) => staff._id);
       query.staffId = { $in: staffIds };
     }
 
-    // Fetch attendance records
     const attendanceRecords = await Attendance.find(query);
 
-    // Calculate statistics
     const totalRecords = attendanceRecords.length;
     const present = attendanceRecords.filter(
       (record) => record.status === "present"
@@ -1032,7 +1042,6 @@ exports.getAttendanceStats = async (req, res) => {
       (record) => record.status === "half-day"
     ).length;
 
-    // Calculate average late minutes and overtime
     let totalLateMinutes = 0;
     let totalOvertimeMinutes = 0;
     let totalHoursWorked = 0;
@@ -1050,7 +1059,6 @@ exports.getAttendanceStats = async (req, res) => {
     const avgHoursWorked =
       totalRecords > 0 ? totalHoursWorked / totalRecords : 0;
 
-    // Group by date for trend analysis
     const dateStats = {};
 
     attendanceRecords.forEach((record) => {
@@ -1086,7 +1094,6 @@ exports.getAttendanceStats = async (req, res) => {
       }
     });
 
-    // Convert to array and sort by date
     const dailyStats = Object.values(dateStats).sort((a, b) =>
       a.date.localeCompare(b.date)
     );
