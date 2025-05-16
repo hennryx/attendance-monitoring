@@ -123,7 +123,6 @@ const useUsersStore = create((set, get) => ({
     set({ isLoading: true, message: "", isSuccess: false });
 
     try {
-      // Check if required data is provided
       if (!data.staffId || !data.fingerPrint) {
         set({
           isLoading: false,
@@ -133,7 +132,6 @@ const useUsersStore = create((set, get) => ({
         throw new Error("Missing staff ID or fingerprint data");
       }
 
-      // Create a proper request with all required fields
       const requestData = {
         staffId: data.staffId,
         fingerPrint: data.fingerPrint,
@@ -146,12 +144,7 @@ const useUsersStore = create((set, get) => ({
         fingerPrintProvided: !!requestData.fingerPrint,
       });
 
-      // Use direct API call to bypass FormData conversion
-      const res = await axiosTools.saveData(
-        "users/enroll-single",
-        requestData,
-        token
-      );
+      const res = await axiosTools.saveData("users/enroll", requestData, token);
 
       set({
         isSuccess: res.success,

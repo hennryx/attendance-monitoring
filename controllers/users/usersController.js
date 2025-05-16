@@ -94,8 +94,6 @@ exports.enrollUSer = async (req, res) => {
   try {
     const { staffId, fingerPrint, email } = req.body;
 
-    console.log(`Enrolling single fingerprint: staffId=${staffId}`);
-
     if (!staffId || !fingerPrint) {
       return res.status(400).json({
         success: false,
@@ -104,17 +102,16 @@ exports.enrollUSer = async (req, res) => {
       });
     }
 
-    // Process with the fingerprint service
     const enrollResult = await fingerprintService.enrollFingerprint({
       staffId,
       fingerPrint,
       email,
     });
 
-    if (!enrollResult || !enrollResult.success) {
+    if (!enrollResult.success) {
       return res.status(400).json({
         success: false,
-        message: enrollResult?.message || "User Fingerprint Enrollment failed!",
+        message: enrollResult.message || "User Fingerprint Enrollment failed!",
       });
     }
 
@@ -134,6 +131,7 @@ exports.enrollUSer = async (req, res) => {
   }
 };
 
+// Fingerprint matching controller
 exports.matchFingerprint = async (req, res) => {
   try {
     const { fingerPrint } = req.body;
@@ -153,9 +151,6 @@ exports.matchFingerprint = async (req, res) => {
 
     if (matchResult.matched) {
       const staffId = matchResult.staffId;
-      const user = await Users.findById(staffId);
-
-      console.log(user);
 
       console.log(`Match found: ${staffId} with score ${matchResult.score}`);
 
@@ -164,13 +159,7 @@ exports.matchFingerprint = async (req, res) => {
         matched: true,
         staffId: staffId,
         message: "Success, match found!",
-        userData: user
-          ? {
-              name: user.firstname,
-              email: user.email,
-              staffId: user._id,
-            }
-          : matchResult.userData || null,
+        userData: matchResult.userData || null,
         score: matchResult.score,
         confidence: matchResult.confidence,
       });

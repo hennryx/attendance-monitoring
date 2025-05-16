@@ -12,14 +12,24 @@ import threading
 import multiprocessing
 import traceback
 import logging
+import uuid
+import hashlib
+from functools import lru_cache
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, 
-                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+# Configure logging with rotating file handler
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('fingerprint_server.log')
+    ]
+)
 logger = logging.getLogger(__name__)
 
-# Use half the CPU cores for parallel processing to avoid system slowdown
-NUM_CORES = max(1, multiprocessing.cpu_count() // 2)
+# Use 75% of CPU cores for parallel processing to balance performance and system resources
+NUM_CORES = max(1, int(multiprocessing.cpu_count() * 0.75))
+logger.info(f"Using {NUM_CORES} CPU cores for processing")
 
 # Custom JSON encoder to handle NumPy types
 class NumpyJSONEncoder(json.JSONEncoder):
@@ -36,36 +46,55 @@ app = Flask(__name__)
 app.json_encoder = NumpyJSONEncoder
 CORS(app)
 
-# Directory for storing fingerprint images
-BASE_ASSET_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'assets'))
-FINGERPRINT_DIR = os.path.join(BASE_ASSET_DIR, 'fingerprints')
-os.makedirs(FINGERPRINT_DIR, exist_ok=True)
+# Constants - consolidated in one place for easy tuning
+class Config:
+    QUALITY_THRESHOLD = 35  # Minimum quality score needed for acceptance
+    MATCH_THRESHOLD = 0.45  # Score threshold for fingerprint matching
+    MIN_MATCH_COUNT = 4     # Minimum number of feature matches 
+    CACHE_SIZE = 100        # LRU cache size for templates
+    REQUEST_TIMEOUT = 60    # Default request timeout in seconds
+    MAX_TEMPLATE_SIZE = 50  # Maximum number of descriptors to store
+    MAX_IMAGE_SIZE = 400    # Maximum image dimension for processing
+    DEBUG_MODE = os.environ.get('DEBUG_MODE', 'false').lower() == 'true'
 
-# Constants
-MIN_MATCH_COUNT = 4  # Reduced for faster matching
-MATCH_THRESHOLD = 0.45
-QUALITY_THRESHOLD = 35
+# Create an in-memory cache with LRU policy for fingerprint templates
+@lru_cache(maxsize=Config.CACHE_SIZE)
+def get_cached_template(template_id):
+    """Retrieve a template from cache by ID"""
+    return template_cache.get(template_id)
 
-# Cache for templates
+# Template cache as dictionary
 template_cache = {}
 
 def base64_to_image(base64_string):
-    """Convert base64 string to OpenCV image - optimized"""
+    """Convert base64 string to OpenCV image - optimized and secured"""
     try:
-        if ',' in base64_string:
-            base64_string = base64_string.split(',')[1]
+        # Handle different base64 formats
+        if isinstance(base64_string, str):
+            if ',' in base64_string:
+                base64_string = base64_string.split(',')[1]
+            
+            # Basic validation to ensure this is base64
+            if not all(c in 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=' for c in base64_string):
+                logger.warning("Invalid base64 character detected")
+                return None
         
+        # Convert to bytes and decode
         img_data = base64.b64decode(base64_string)
         nparr = np.frombuffer(img_data, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_GRAYSCALE)  # Direct grayscale conversion
         
+        if img is None or img.size == 0:
+            logger.warning("Decoded image is empty or invalid")
+            return None
+            
         return img
     except Exception as e:
         logger.error(f"Error converting base64 to image: {e}")
         return None
 
 def process_fingerprint(image_data):
-    """Fast fingerprint processing - optimized for speed"""
+    """Enhanced fingerprint processing with quality checks"""
     try:
         # Convert base64 to image
         img = base64_to_image(image_data)
@@ -75,55 +104,58 @@ def process_fingerprint(image_data):
         
         # Resize to smaller dimensions for faster processing
         height, width = img.shape
-        if width > 300 or height > 400:  # Smaller size for faster processing
-            scale = min(300 / width, 400 / height)
+        if width > Config.MAX_IMAGE_SIZE or height > Config.MAX_IMAGE_SIZE:
+            scale = min(Config.MAX_IMAGE_SIZE / width, Config.MAX_IMAGE_SIZE / height)
             img = cv2.resize(img, None, fx=scale, fy=scale)
         
-        # Simple enhancement pipeline
+        # Enhanced image processing pipeline
         # 1. Normalization
         normalized = cv2.normalize(img, None, 0, 255, cv2.NORM_MINMAX)
         
-        # 2. Enhance contrast
+        # 2. Enhance contrast with CLAHE
         clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
         enhanced = clahe.apply(normalized)
         
-        # 3. Fast denoise
+        # 3. Denoise with Gaussian blur
         denoised = cv2.GaussianBlur(enhanced, (3, 3), 1)
         
-        # 4. Binarization - simplified (faster)
-        _, binary = cv2.threshold(denoised, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+        # 4. Binarization using adaptive thresholding
+        binary = cv2.adaptiveThreshold(denoised, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+                                      cv2.THRESH_BINARY_INV, 11, 2)
         
-        # 5. Get simplified minutiae
+        # 5. Extract minutiae points from the binary image
         minutiae = []
         contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
-        # Limit to first 25 contours for speed
-        for contour in contours[:25]:
+        # Process meaningful contours for minutiae extraction
+        for contour in contours[:30]:  # Limit to first 30 contours for speed
             M = cv2.moments(contour)
             if M["m00"] != 0:
                 cX = int(M["m10"] / M["m00"])
                 cY = int(M["m01"] / M["m00"])
                 
-                # Calculate contour area and perimeter
+                # Calculate contour properties
                 area = cv2.contourArea(contour)
                 perimeter = cv2.arcLength(contour, True)
                 
-                # Only add significant minutiae
-                if area > 10 and perimeter > 10:
+                # Only include significant minutiae
+                if area > 12 and perimeter > 12:
                     minutiae.append({
                         'x': int(cX),
                         'y': int(cY),
-                        'type': 'bifurcation' if area/perimeter > 2 else 'ending'
+                        'type': 'bifurcation' if area/perimeter > 2 else 'ending',
+                        'area': float(area),
+                        'perimeter': float(perimeter)
                     })
         
-        # 6. Extract ORB features (much faster than SIFT)
-        orb = cv2.ORB_create(nfeatures=100)  # Limit to 100 features for speed
+        # 6. Extract features using ORB (faster than SIFT/SURF)
+        orb = cv2.ORB_create(nfeatures=150)  # Increased for better matching
         keypoints, descriptors = orb.detectAndCompute(enhanced, None)
         
-        # Convert keypoints to dictionary
+        # Convert keypoints to a serializable format
         keypoints_list = []
         if keypoints:
-            for kp in keypoints[:20]:  # Limit to top 20 keypoints
+            for kp in keypoints[:25]:  # Limit to top 25 keypoints
                 keypoints_list.append({
                     'x': float(kp.pt[0]),
                     'y': float(kp.pt[1]),
@@ -132,38 +164,40 @@ def process_fingerprint(image_data):
                     'response': float(kp.response),
                 })
         
-        # 7. Calculate image quality
-        # Simplified quality assessment based on contrast and feature count
+        # 7. Calculate image quality metrics
+        # Improved quality assessment with multiple factors
         contrast = float(np.std(enhanced))
         feature_count = len(keypoints) if keypoints else 0
+        minutiae_count = len(minutiae)
         
-        quality_score = min(100, (contrast / 2.5) * 0.7 + (min(feature_count, 50) / 50) * 30)
+        # Combined quality score weighted by importance
+        quality_score = min(100, (contrast / 3.0) * 0.4 + 
+                           (min(feature_count, 100) / 100) * 0.4 + 
+                           (min(minutiae_count, 20) / 20) * 0.2)
         
-        # Prepare quality metrics
+        # Quality metrics dictionary
         quality = {
             'overall': float(quality_score),
             'contrast': float(contrast),
             'feature_count': int(feature_count),
+            'minutiae_count': int(minutiae_count)
         }
         
-        # Prepare descriptor data in the right format
+        # Format descriptors for response
         descriptor_data = []
         if descriptors is not None:
-            # Convert to regular Python lists for JSON serialization
             descriptor_data = descriptors.tolist()
             
-            # Limit to 50 descriptors max to reduce size
-            if len(descriptor_data) > 50:
-                descriptor_data = descriptor_data[:50]
+            # Limit descriptor count to avoid oversized templates
+            if len(descriptor_data) > Config.MAX_TEMPLATE_SIZE:
+                descriptor_data = descriptor_data[:Config.MAX_TEMPLATE_SIZE]
         
-        # Return all features in a dictionary
+        # Return template with all features
         return {
             'minutiae': minutiae,
             'keypoints': keypoints_list,
             'descriptors': descriptor_data,
             'quality': quality,
-            # Create binary image display for debugging if needed
-            # 'binary_image': binary.tolist() if binary is not None else None
         }
     except Exception as e:
         logger.error(f"Error processing fingerprint: {e}")
@@ -172,7 +206,8 @@ def process_fingerprint(image_data):
 
 @app.route('/api/fingerprint/process-single', methods=['POST'])
 def process_single_fingerprint():
-    """Process a single fingerprint to create a template - optimized version"""
+    """Process a single fingerprint to create a template - enhanced version"""
+    print("----")
     start_time = time.time()
     data = request.json
     
@@ -188,9 +223,8 @@ def process_single_fingerprint():
     if not staff_id:
         return jsonify({'success': False, 'message': 'Missing staff ID'}), 400
     
-    # Process the fingerprint
     try:
-        logger.info(f"Processing single fingerprint for staff ID: {staff_id}")
+        logger.info(f"Processing fingerprint for staff ID: {staff_id}")
         features = process_fingerprint(fingerprint)
         
         if not features:
@@ -199,30 +233,25 @@ def process_single_fingerprint():
         # Check quality
         quality = features.get('quality', {}).get('overall', 0)
         
-        if quality < QUALITY_THRESHOLD:
-            return jsonify({
-                'success': False,
-                'message': f'Poor quality fingerprint (score: {quality:.1f}). Please try again with better placement.',
-                'quality_score': float(quality)
-            }), 400
-        
-        # Create template with reduced size
+        # Create optimized template
         template = {
-            'minutiae': features.get('minutiae', [])[:15],  # Limit minutiae points
-            'descriptors': features.get('descriptors', [])[:30],  # Limit descriptors
-            'keypoints': features.get('keypoints', [])[:15],  # Limit keypoints
+            'minutiae': features.get('minutiae', [])[:20],  # Limit minutiae points
+            'descriptors': features.get('descriptors', [])[:Config.MAX_TEMPLATE_SIZE],
+            'keypoints': features.get('keypoints', [])[:20],
             'quality': features.get('quality', {})
         }
         
-        # Store in cache for faster matching
-        template_cache[staff_id] = template
+        # Generate template ID and store in cache
+        template_id = f"{staff_id}_{hashlib.md5(str(template).encode()).hexdigest()[:8]}"
+        template_cache[template_id] = template
         
         processing_time = time.time() - start_time
-        logger.info(f"Processed single fingerprint in {processing_time:.3f}s")
+        logger.info(f"Processed fingerprint in {processing_time:.3f}s with quality {quality:.1f}")
         
         return jsonify({
             'success': True,
             'template': template,
+            'template_id': template_id,
             'quality_score': float(quality),
             'processing_time': float(processing_time)
         })
@@ -232,12 +261,12 @@ def process_single_fingerprint():
         traceback.print_exc()
         return jsonify({'success': False, 'message': f'Error processing fingerprint: {str(e)}'}), 500
 
-class SimpleFingerprintMatcher:
-    """Fast fingerprint matcher focused on speed"""
+class EnhancedFingerprintMatcher:
+    """Improved fingerprint matcher with multiple matching strategies"""
     
     @staticmethod
     def match_minutiae(probe_minutiae, template_minutiae):
-        """Match fingerprints based on minutiae points - simplified"""
+        """Match fingerprints based on minutiae points"""
         if not probe_minutiae or not template_minutiae:
             return 0
         
@@ -248,16 +277,29 @@ class SimpleFingerprintMatcher:
         probe_points = np.array([[m['x'], m['y']] for m in probe_minutiae])
         template_points = np.array([[m['x'], m['y']] for m in template_minutiae])
         
-        # Simple distance-based matching
+        # Use spatial matching with distance threshold
         for i, p_point in enumerate(probe_points):
+            # Calculate Euclidean distances between this point and all template points
             distances = np.sqrt(np.sum((template_points - p_point)**2, axis=1))
+            
             if distances.size > 0:
                 min_idx = np.argmin(distances)
                 min_dist = distances[min_idx]
                 
                 # Consider a match if distance is below threshold
-                if min_dist < 20 and min_idx not in matched_indices:
-                    match_count += 1
+                if min_dist < 25 and min_idx not in matched_indices:
+                    # Check minutiae type if available
+                    if (i < len(probe_minutiae) and min_idx < len(template_minutiae) and
+                        'type' in probe_minutiae[i] and 'type' in template_minutiae[min_idx]):
+                        
+                        # If types match, provide higher score
+                        if probe_minutiae[i]['type'] == template_minutiae[min_idx]['type']:
+                            match_count += 1.2
+                        else:
+                            match_count += 0.8
+                    else:
+                        match_count += 1
+                        
                     matched_indices.add(min_idx)
         
         # Calculate score based on matches
@@ -266,11 +308,11 @@ class SimpleFingerprintMatcher:
             return 0
             
         score = match_count / total_points
-        return score
+        return min(1.0, score)  # Cap at 1.0
     
     @staticmethod
     def match_descriptors(probe_descriptors, template_descriptors):
-        """Simplified descriptor matching"""
+        """Optimized descriptor matching using Hamming distance"""
         if not probe_descriptors or not template_descriptors:
             return 0
         
@@ -281,49 +323,103 @@ class SimpleFingerprintMatcher:
         if isinstance(template_descriptors, list):
             template_descriptors = np.array(template_descriptors, dtype=np.uint8)
         
-        # Use simple Hamming distance
+        # Ensure arrays have compatible shapes
         min_rows = min(probe_descriptors.shape[0], template_descriptors.shape[0])
         min_cols = min(probe_descriptors.shape[1], template_descriptors.shape[1])
         
-        # Truncate to make arrays same size
+        # Use smaller arrays for comparison
         p_desc = probe_descriptors[:min_rows, :min_cols]
         t_desc = template_descriptors[:min_rows, :min_cols]
         
-        # Calculate bit-wise differences
+        # Calculate matching using bit-wise operations (Hamming distance)
         bit_diffs = np.bitwise_xor(p_desc, t_desc)
-        bit_matches = np.count_nonzero(bit_diffs == 0)
-        total_bits = p_desc.size * 8
+        hamming_distances = np.sum(np.unpackbits(bit_diffs, axis=1), axis=1)
         
-        # Score based on matching bits
-        if total_bits == 0:
+        # Find best matches - lowest Hamming distance
+        match_count = np.sum(hamming_distances < (min_cols * 8 * 0.25))  # Match if less than 25% bits differ
+        
+        # Score based on match ratio
+        score = match_count / min_rows if min_rows > 0 else 0
+        return min(1.0, score * 1.5)  # Scale up but cap at 1.0
+    
+    @staticmethod
+    def match_keypoints(probe_keypoints, template_keypoints):
+        """Match based on keypoint locations and attributes"""
+        if not probe_keypoints or not template_keypoints:
             return 0
+            
+        match_count = 0
+        matched_indices = set()
         
-        score = bit_matches / total_bits
-        return min(1.0, score * 2)  # Scale up for better matching
+        # For each probe keypoint, find closest template keypoint
+        for i, p_kp in enumerate(probe_keypoints):
+            best_match_idx = -1
+            best_match_dist = float('inf')
+            
+            # Find closest keypoint by position and attribute similarity
+            for j, t_kp in enumerate(template_keypoints):
+                if j in matched_indices:
+                    continue
+                    
+                # Calculate position distance
+                pos_dist = np.sqrt((p_kp['x'] - t_kp['x'])**2 + (p_kp['y'] - t_kp['y'])**2)
+                
+                # Calculate attribute similarity
+                size_diff = abs(p_kp['size'] - t_kp['size']) / max(p_kp['size'], t_kp['size'])
+                angle_diff = min(abs(p_kp['angle'] - t_kp['angle']), 360 - abs(p_kp['angle'] - t_kp['angle'])) / 180
+                
+                # Combined distance metric
+                combined_dist = pos_dist * 0.6 + size_diff * 0.2 + angle_diff * 0.2
+                
+                if combined_dist < best_match_dist:
+                    best_match_dist = combined_dist
+                    best_match_idx = j
+            
+            # Count as match if distance is below threshold
+            if best_match_idx != -1 and best_match_dist < 30:
+                match_count += 1
+                matched_indices.add(best_match_idx)
+        
+        # Calculate score
+        total_keypoints = max(len(probe_keypoints), len(template_keypoints))
+        if total_keypoints == 0:
+            return 0
+            
+        score = match_count / total_keypoints
+        return min(1.0, score)
     
     @staticmethod
     def match_combined(probe_features, template_features):
-        """Fast combined matcher"""
+        """Combined matcher using weighted average of multiple strategies"""
         scores = []
         weights = []
         
-        # Match minutiae
+        # Match minutiae points
         if probe_features.get('minutiae') and template_features.get('minutiae'):
-            minutiae_score = SimpleFingerprintMatcher.match_minutiae(
+            minutiae_score = EnhancedFingerprintMatcher.match_minutiae(
                 probe_features['minutiae'], 
                 template_features['minutiae']
             )
             scores.append(minutiae_score)
-            weights.append(0.6)
+            weights.append(0.5)  # Minutiae are important
         
         # Match descriptors
         if probe_features.get('descriptors') and template_features.get('descriptors'):
-            desc_score = SimpleFingerprintMatcher.match_descriptors(
+            desc_score = EnhancedFingerprintMatcher.match_descriptors(
                 probe_features['descriptors'],
                 template_features['descriptors']
             )
             scores.append(desc_score)
-            weights.append(0.4)
+            weights.append(0.35)  # Descriptors provide good discrimination
+        
+        # Match keypoints
+        if probe_features.get('keypoints') and template_features.get('keypoints'):
+            kp_score = EnhancedFingerprintMatcher.match_keypoints(
+                probe_features['keypoints'],
+                template_features['keypoints']
+            )
+            scores.append(kp_score)
+            weights.append(0.15)  # Keypoints provide additional context
         
         # Calculate weighted score
         if not scores:
@@ -340,7 +436,7 @@ class SimpleFingerprintMatcher:
 
 @app.route('/api/fingerprint/match', methods=['POST'])
 def match_fingerprint():
-    """Match a fingerprint against stored templates - optimized for speed"""
+    """Match a fingerprint against stored templates - enhanced version"""
     start_time = time.time()
     data = request.json
     
@@ -360,7 +456,7 @@ def match_fingerprint():
         
         # Check quality
         quality = features.get('quality', {}).get('overall', 0)
-        if quality < QUALITY_THRESHOLD:
+        if quality < Config.QUALITY_THRESHOLD:
             return jsonify({
                 'success': False,
                 'matched': False,
@@ -373,6 +469,9 @@ def match_fingerprint():
             
         # Match against all templates
         match_results = []
+        matcher = EnhancedFingerprintMatcher()
+        
+        logger.info(f"Matching fingerprint against {len(data['templates'])} templates")
         
         for t in data['templates']:
             staff_id = t.get('staffId')
@@ -381,12 +480,13 @@ def match_fingerprint():
             if not staff_id or not template:
                 continue
                 
-            # Check cache first
-            if staff_id in template_cache:
-                template = template_cache[staff_id]
+            # Check cache for this template
+            template_id = t.get('template_id')
+            if template_id and template_id in template_cache:
+                template = template_cache[template_id]
                 
-            # Match using simplified algorithm
-            score = SimpleFingerprintMatcher.match_combined(features, template)
+            # Match using enhanced algorithm
+            score = matcher.match_combined(features, template)
             
             match_results.append({
                 'staffId': staff_id,
@@ -397,17 +497,18 @@ def match_fingerprint():
         match_results.sort(key=lambda x: x['score'], reverse=True)
         
         # Determine match
-        if match_results and match_results[0]['score'] >= MATCH_THRESHOLD:
+        if match_results and match_results[0]['score'] >= Config.MATCH_THRESHOLD:
             top_match = match_results[0]
             
             # Determine confidence level
             confidence = "low"
             if top_match['score'] >= 0.7:
                 confidence = "high"
-            elif top_match['score'] >= 0.5:
+            elif top_match['score'] >= 0.55:
                 confidence = "medium"
             
             processing_time = time.time() - start_time
+            logger.info(f"Match found for staffId {top_match['staffId']} with score {top_match['score']:.3f}")
             
             return jsonify({
                 'success': True,
@@ -419,6 +520,7 @@ def match_fingerprint():
             })
         else:
             processing_time = time.time() - start_time
+            logger.info(f"No match found. Best score: {match_results[0]['score'] if match_results else 0:.3f}")
             
             return jsonify({
                 'success': False,
@@ -441,7 +543,7 @@ def match_fingerprint():
 
 @app.route('/api/fingerprint/verify', methods=['POST'])
 def verify_fingerprint():
-    """Verify a fingerprint against a specific staff ID - optimized for speed"""
+    """Verify a fingerprint against a specific staff ID - enhanced version"""
     start_time = time.time()
     data = request.json
     
@@ -466,7 +568,7 @@ def verify_fingerprint():
         
         # Check quality
         quality = features.get('quality', {}).get('overall', 0)
-        if quality < QUALITY_THRESHOLD:
+        if quality < Config.QUALITY_THRESHOLD:
             return jsonify({
                 'success': False,
                 'verified': False,
@@ -481,12 +583,17 @@ def verify_fingerprint():
         staff_templates = []
         for t in data['templates']:
             if t.get('staffId') == staff_id and 'template' in t:
-                # Check if in cache first
-                if staff_id in template_cache:
-                    staff_templates.append(template_cache[staff_id])
+                # Check cache first
+                template_id = t.get('template_id')
+                if template_id and template_id in template_cache:
+                    staff_templates.append(template_cache[template_id])
                 else:
                     staff_templates.append(t['template'])
-                    template_cache[staff_id] = t['template']  # Add to cache
+                    
+                    # Update cache
+                    if not template_id:
+                        template_id = f"{staff_id}_{uuid.uuid4().hex[:8]}"
+                    template_cache[template_id] = t['template']
         
         if not staff_templates:
             return jsonify({
@@ -496,22 +603,29 @@ def verify_fingerprint():
             }), 404
         
         # Match against each template and get best score
+        matcher = EnhancedFingerprintMatcher()
         best_score = 0
+        
         for template in staff_templates:
-            score = SimpleFingerprintMatcher.match_combined(features, template)
+            score = matcher.match_combined(features, template)
             best_score = max(best_score, score)
         
         # Determine if verified
-        verified = best_score >= MATCH_THRESHOLD
+        verified = best_score >= Config.MATCH_THRESHOLD
         
         # Determine confidence level
         confidence = "low"
         if best_score >= 0.7:
             confidence = "high"
-        elif best_score >= 0.5:
+        elif best_score >= 0.55:
             confidence = "medium"
         
         processing_time = time.time() - start_time
+        
+        if verified:
+            logger.info(f"Fingerprint verified for staffId {staff_id} with score {best_score:.3f}")
+        else:
+            logger.info(f"Verification failed for staffId {staff_id}. Score: {best_score:.3f}")
         
         return jsonify({
             'success': True,
@@ -535,14 +649,23 @@ def verify_fingerprint():
 
 @app.route('/api/status', methods=['GET'])
 def server_status():
+    """Get server status and statistics"""
     return jsonify({
         'status': 'running',
-        'version': '4.0',  # Optimized version
+        'version': '4.2',  # Enhanced version
         'uptime': time.time(),
         'cores': NUM_CORES,
-        'cached_templates': len(template_cache)
+        'cached_templates': len(template_cache),
+        'quality_threshold': Config.QUALITY_THRESHOLD,
+        'match_threshold': Config.MATCH_THRESHOLD,
+        'debug_mode': Config.DEBUG_MODE
     })
 
+@app.route('/api/health', methods=['GET'])
+def health_check():
+    """Simple health check endpoint"""
+    return jsonify({'status': 'ok', 'timestamp': time.time()})
+
 if __name__ == '__main__':
-    print(f"Starting optimized fingerprint server on port 5500 using {NUM_CORES} cores")
-    app.run(host='0.0.0.0', port=5500, debug=False, threaded=True, processes=1)
+    logger.info(f"Starting enhanced fingerprint server on port 5500 using {NUM_CORES} cores")
+    app.run(host='0.0.0.0', port=5500, debug=Config.DEBUG_MODE, threaded=True)

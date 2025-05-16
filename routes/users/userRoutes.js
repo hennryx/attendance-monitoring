@@ -16,7 +16,7 @@ const {
   uploadProfileImage,
 } = require("../../middlewares/profileUploadMiddleware");
 
-router.post("/enroll-single", protect, enrollUSer);
+router.post("/enroll", protect, enrollUSer);
 // Get all users - admin only
 router.get("/getAll", protect, authorize("ADMIN"), getAllUsers);
 router.delete("/delete", protect, deleteUser);
