@@ -90,8 +90,6 @@ class FingerprintService {
         cleanFingerprint = cleanFingerprint.split(",")[1];
       }
 
-      console.log(FINGERPRINT_SERVER_URL);
-
       const response = await axios.post(
         `http://localhost:${FINGERPRINT_SERVER_URL}/api/fingerprint/process-single`,
         { staffId, email, fingerPrint: cleanFingerprint },
@@ -266,7 +264,7 @@ class FingerprintService {
       console.log(`Found ${templates.length} templates for matching`);
 
       const response = await axios.post(
-        `${FINGERPRINT_SERVER_URL}/api/fingerprint/match`,
+        `http://localhost:${FINGERPRINT_SERVER_URL}/api/fingerprint/match`,
         { fingerPrint: cleanFingerprint, templates },
         { timeout: 30000 }
       );
@@ -355,7 +353,7 @@ class FingerprintService {
       }
 
       const response = await axios.post(
-        `${FINGERPRINT_SERVER_URL}/api/fingerprint/verify`,
+        `http://localhost:${FINGERPRINT_SERVER_URL}/api/fingerprint/verify`,
         {
           fingerPrint: cleanFingerprint,
           staffId,

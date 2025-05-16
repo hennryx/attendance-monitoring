@@ -46,7 +46,6 @@ app = Flask(__name__)
 app.json_encoder = NumpyJSONEncoder
 CORS(app)
 
-# Constants - consolidated in one place for easy tuning
 class Config:
     QUALITY_THRESHOLD = 35  # Minimum quality score needed for acceptance
     MATCH_THRESHOLD = 0.45  # Score threshold for fingerprint matching
@@ -57,13 +56,11 @@ class Config:
     MAX_IMAGE_SIZE = 400    # Maximum image dimension for processing
     DEBUG_MODE = os.environ.get('DEBUG_MODE', 'false').lower() == 'true'
 
-# Create an in-memory cache with LRU policy for fingerprint templates
 @lru_cache(maxsize=Config.CACHE_SIZE)
 def get_cached_template(template_id):
     """Retrieve a template from cache by ID"""
     return template_cache.get(template_id)
 
-# Template cache as dictionary
 template_cache = {}
 
 def base64_to_image(base64_string):
@@ -455,14 +452,14 @@ def match_fingerprint():
             }), 400
         
         # Check quality
-        quality = features.get('quality', {}).get('overall', 0)
-        if quality < Config.QUALITY_THRESHOLD:
-            return jsonify({
-                'success': False,
-                'matched': False,
-                'message': f'Poor quality fingerprint (score: {quality:.1f}). Please try again with better placement.',
-                'quality_score': float(quality)
-            }), 400
+        # quality = features.get('quality', {}).get('overall', 0)
+        # if quality < Config.QUALITY_THRESHOLD:
+        #     return jsonify({
+        #         'success': False,
+        #         'matched': False,
+        #         'message': f'Poor quality fingerprint (score: {quality:.1f}). Please try again with better placement.',
+        #         'quality_score': float(quality)
+        #     }), 400
         
         if 'templates' not in data or not data['templates']:
             return jsonify({'success': False, 'message': 'No templates provided'}), 400
