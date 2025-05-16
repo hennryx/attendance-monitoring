@@ -16,7 +16,6 @@ import uuid
 import hashlib
 from functools import lru_cache
 
-# Configure logging with rotating file handler
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -27,11 +26,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Use 75% of CPU cores for parallel processing to balance performance and system resources
 NUM_CORES = max(1, int(multiprocessing.cpu_count() * 0.75))
 logger.info(f"Using {NUM_CORES} CPU cores for processing")
 
-# Custom JSON encoder to handle NumPy types
 class NumpyJSONEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, np.integer):
@@ -47,13 +44,17 @@ app.json_encoder = NumpyJSONEncoder
 CORS(app)
 
 class Config:
-    QUALITY_THRESHOLD = 35  # Minimum quality score needed for acceptance
-    MATCH_THRESHOLD = 0.45  # Score threshold for fingerprint matching
-    MIN_MATCH_COUNT = 4     # Minimum number of feature matches 
+    # IMPORTANT: Lowered quality threshold to accept more fingerprints
+    QUALITY_THRESHOLD = 15  # Reduced from 35 to accept more prints
+    
+    # IMPORTANT: Lowered match threshold for better acceptance rate
+    MATCH_THRESHOLD = 0.35  # Reduced from 0.45 to improve matching
+    
+    MIN_MATCH_COUNT = 3     # Reduced from 4 to allow matching with fewer features
     CACHE_SIZE = 100        # LRU cache size for templates
     REQUEST_TIMEOUT = 60    # Default request timeout in seconds
-    MAX_TEMPLATE_SIZE = 50  # Maximum number of descriptors to store
-    MAX_IMAGE_SIZE = 400    # Maximum image dimension for processing
+    MAX_TEMPLATE_SIZE = 100 # Increased from 50 to store more descriptors
+    MAX_IMAGE_SIZE = 500    # Increased from 400 for more detailed processing
     DEBUG_MODE = os.environ.get('DEBUG_MODE', 'false').lower() == 'true'
 
 @lru_cache(maxsize=Config.CACHE_SIZE)
@@ -64,22 +65,25 @@ def get_cached_template(template_id):
 template_cache = {}
 
 def base64_to_image(base64_string):
-    """Convert base64 string to OpenCV image - optimized and secured"""
+    """Convert base64 string to OpenCV image - robust version"""
     try:
-        # Handle different base64 formats
         if isinstance(base64_string, str):
             if ',' in base64_string:
                 base64_string = base64_string.split(',')[1]
             
-            # Basic validation to ensure this is base64
             if not all(c in 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=' for c in base64_string):
                 logger.warning("Invalid base64 character detected")
                 return None
         
-        # Convert to bytes and decode
         img_data = base64.b64decode(base64_string)
         nparr = np.frombuffer(img_data, np.uint8)
-        img = cv2.imdecode(nparr, cv2.IMREAD_GRAYSCALE)  # Direct grayscale conversion
+        
+        img = cv2.imdecode(nparr, cv2.IMREAD_GRAYSCALE)
+        
+        if img is None or img.size == 0:
+            color_img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            if color_img is not None:
+                img = cv2.cvtColor(color_img, cv2.COLOR_BGR2GRAY)
         
         if img is None or img.size == 0:
             logger.warning("Decoded image is empty or invalid")
@@ -90,89 +94,151 @@ def base64_to_image(base64_string):
         logger.error(f"Error converting base64 to image: {e}")
         return None
 
+def enhance_fingerprint_image(img):
+    """Enhanced preprocessing specific for the device's fingerprint output"""
+    if img is None:
+        return None
+    
+    height, width = img.shape
+    if width > Config.MAX_IMAGE_SIZE or height > Config.MAX_IMAGE_SIZE:
+        scale = min(Config.MAX_IMAGE_SIZE / width, Config.MAX_IMAGE_SIZE / height)
+        img = cv2.resize(img, None, fx=scale, fy=scale)
+    
+    hist_eq = cv2.equalizeHist(img)
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
+    enhanced = clahe.apply(hist_eq)
+    blurred = cv2.GaussianBlur(enhanced, (5, 5), 0)
+    binary = cv2.adaptiveThreshold(
+        blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+        cv2.THRESH_BINARY_INV, 19, 2
+    )
+    kernel = np.ones((3,3), np.uint8)
+    morph = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
+    
+    return {
+        'original': img,
+        'enhanced': enhanced,
+        'binary': binary,
+        'morph': morph
+    }
+
 def process_fingerprint(image_data):
-    """Enhanced fingerprint processing with quality checks"""
+    """Enhanced fingerprint processing with more robust feature extraction"""
     try:
-        # Convert base64 to image
         img = base64_to_image(image_data)
         if img is None:
             logger.error("Failed to convert base64 to image")
             return None
         
-        # Resize to smaller dimensions for faster processing
-        height, width = img.shape
-        if width > Config.MAX_IMAGE_SIZE or height > Config.MAX_IMAGE_SIZE:
-            scale = min(Config.MAX_IMAGE_SIZE / width, Config.MAX_IMAGE_SIZE / height)
-            img = cv2.resize(img, None, fx=scale, fy=scale)
+        processed = enhance_fingerprint_image(img)
+        if processed is None:
+            return None
         
-        # Enhanced image processing pipeline
-        # 1. Normalization
-        normalized = cv2.normalize(img, None, 0, 255, cv2.NORM_MINMAX)
+        minutiae_points = []
         
-        # 2. Enhance contrast with CLAHE
-        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
-        enhanced = clahe.apply(normalized)
+        binary = processed['binary']
+        morph = processed['morph']
         
-        # 3. Denoise with Gaussian blur
-        denoised = cv2.GaussianBlur(enhanced, (3, 3), 1)
+        contours, _ = cv2.findContours(
+            morph, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
-        # 4. Binarization using adaptive thresholding
-        binary = cv2.adaptiveThreshold(denoised, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-                                      cv2.THRESH_BINARY_INV, 11, 2)
+        for contour in contours[:50]:  
+            if len(contour) > 3:  
+                M = cv2.moments(contour)
+                if M["m00"] != 0:
+                    cX = int(M["m10"] / M["m00"])
+                    cY = int(M["m01"] / M["m00"])
+                    
+                    area = cv2.contourArea(contour)
+                    perimeter = cv2.arcLength(contour, True)
+                    
+                    if area > 8: 
+                        minutiae_points.append({
+                            'x': cX,
+                            'y': cY,
+                            'type': 'bifurcation' if area/perimeter > 1.5 else 'ending',
+                            'area': float(area)
+                        })
         
-        # 5. Extract minutiae points from the binary image
-        minutiae = []
-        contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        contours, _ = cv2.findContours(
+            processed['binary'], 
+            cv2.RETR_EXTERNAL, 
+            cv2.CHAIN_APPROX_SIMPLE
+        )
         
-        # Process meaningful contours for minutiae extraction
-        for contour in contours[:30]:  # Limit to first 30 contours for speed
-            M = cv2.moments(contour)
-            if M["m00"] != 0:
-                cX = int(M["m10"] / M["m00"])
-                cY = int(M["m01"] / M["m00"])
-                
-                # Calculate contour properties
-                area = cv2.contourArea(contour)
-                perimeter = cv2.arcLength(contour, True)
-                
-                # Only include significant minutiae
-                if area > 12 and perimeter > 12:
-                    minutiae.append({
-                        'x': int(cX),
-                        'y': int(cY),
-                        'type': 'bifurcation' if area/perimeter > 2 else 'ending',
-                        'area': float(area),
-                        'perimeter': float(perimeter)
-                    })
+        for contour in contours:
+            if len(contour) > 5: 
+                M = cv2.moments(contour)
+                if M["m00"] != 0:
+                    cX = int(M["m10"] / M["m00"])
+                    cY = int(M["m01"] / M["m00"])
+                    area = cv2.contourArea(contour)
+                    
+                    if area > 10:
+                        minutiae_points.append({
+                            'x': cX,
+                            'y': cY,
+                            'type': 'contour',
+                            'area': float(area)
+                        })
         
-        # 6. Extract features using ORB (faster than SIFT/SURF)
-        orb = cv2.ORB_create(nfeatures=150)  # Increased for better matching
-        keypoints, descriptors = orb.detectAndCompute(enhanced, None)
+        filtered_minutiae = []
+        used_positions = set()
         
-        # Convert keypoints to a serializable format
-        keypoints_list = []
-        if keypoints:
-            for kp in keypoints[:25]:  # Limit to top 25 keypoints
-                keypoints_list.append({
+        for m in minutiae_points:
+            pos_key = f"{m['x']//5}_{m['y']//5}" 
+            if pos_key not in used_positions:
+                filtered_minutiae.append(m)
+                used_positions.add(pos_key)
+        
+        if len(filtered_minutiae) > 40:
+            filtered_minutiae = filtered_minutiae[:40]
+        
+        orb = cv2.ORB_create(nfeatures=200, scaleFactor=1.2, WTA_K=3)
+        orb_keypoints, orb_descriptors = orb.detectAndCompute(processed['enhanced'], None)
+        akaze = cv2.AKAZE_create()
+        akaze_keypoints, akaze_descriptors = akaze.detectAndCompute(processed['enhanced'], None)
+        
+        combined_keypoints = []
+        
+        if orb_keypoints:
+            for kp in orb_keypoints[:30]: 
+                combined_keypoints.append({
                     'x': float(kp.pt[0]),
                     'y': float(kp.pt[1]),
                     'size': float(kp.size),
                     'angle': float(kp.angle) if kp.angle is not None else 0,
                     'response': float(kp.response),
+                    'detector': 'orb'
                 })
         
-        # 7. Calculate image quality metrics
-        # Improved quality assessment with multiple factors
-        contrast = float(np.std(enhanced))
-        feature_count = len(keypoints) if keypoints else 0
-        minutiae_count = len(minutiae)
+        if akaze_keypoints:
+            for kp in akaze_keypoints[:30]: 
+                combined_keypoints.append({
+                    'x': float(kp.pt[0]),
+                    'y': float(kp.pt[1]),
+                    'size': float(kp.size),
+                    'angle': float(kp.angle) if kp.angle is not None else 0,
+                    'response': float(kp.response),
+                    'detector': 'akaze'
+                })
         
-        # Combined quality score weighted by importance
-        quality_score = min(100, (contrast / 3.0) * 0.4 + 
-                           (min(feature_count, 100) / 100) * 0.4 + 
-                           (min(minutiae_count, 20) / 20) * 0.2)
+        orb_desc_list = []
+        if orb_descriptors is not None:
+            orb_desc_list = orb_descriptors.tolist()
+            
+        akaze_desc_list = []
+        if akaze_descriptors is not None:
+            akaze_desc_list = akaze_descriptors.tolist()
         
-        # Quality metrics dictionary
+        contrast = float(np.std(processed['enhanced']))
+        feature_count = len(combined_keypoints)
+        minutiae_count = len(filtered_minutiae)
+        
+        quality_score = min(100, (contrast / 2.5) * 0.3 + 
+                          (min(feature_count, 100) / 100) * 0.4 + 
+                          (min(minutiae_count, 20) / 20) * 0.3)
+        
         quality = {
             'overall': float(quality_score),
             'contrast': float(contrast),
@@ -180,20 +246,11 @@ def process_fingerprint(image_data):
             'minutiae_count': int(minutiae_count)
         }
         
-        # Format descriptors for response
-        descriptor_data = []
-        if descriptors is not None:
-            descriptor_data = descriptors.tolist()
-            
-            # Limit descriptor count to avoid oversized templates
-            if len(descriptor_data) > Config.MAX_TEMPLATE_SIZE:
-                descriptor_data = descriptor_data[:Config.MAX_TEMPLATE_SIZE]
-        
-        # Return template with all features
         return {
-            'minutiae': minutiae,
-            'keypoints': keypoints_list,
-            'descriptors': descriptor_data,
+            'minutiae': filtered_minutiae,
+            'keypoints': combined_keypoints,
+            'orb_descriptors': orb_desc_list[:Config.MAX_TEMPLATE_SIZE],
+            'akaze_descriptors': akaze_desc_list[:Config.MAX_TEMPLATE_SIZE],
             'quality': quality,
         }
     except Exception as e:
@@ -203,8 +260,7 @@ def process_fingerprint(image_data):
 
 @app.route('/api/fingerprint/process-single', methods=['POST'])
 def process_single_fingerprint():
-    """Process a single fingerprint to create a template - enhanced version"""
-    print("----")
+    """Process a single fingerprint to create a template"""
     start_time = time.time()
     data = request.json
     
@@ -227,18 +283,16 @@ def process_single_fingerprint():
         if not features:
             return jsonify({'success': False, 'message': 'Failed to extract features from fingerprint'}), 500
         
-        # Check quality
         quality = features.get('quality', {}).get('overall', 0)
         
-        # Create optimized template
         template = {
-            'minutiae': features.get('minutiae', [])[:20],  # Limit minutiae points
-            'descriptors': features.get('descriptors', [])[:Config.MAX_TEMPLATE_SIZE],
-            'keypoints': features.get('keypoints', [])[:20],
+            'minutiae': features.get('minutiae', [])[:30], 
+            'keypoints': features.get('keypoints', [])[:40],
+            'orb_descriptors': features.get('orb_descriptors', [])[:Config.MAX_TEMPLATE_SIZE],
+            'akaze_descriptors': features.get('akaze_descriptors', [])[:Config.MAX_TEMPLATE_SIZE],
             'quality': features.get('quality', {})
         }
         
-        # Generate template ID and store in cache
         template_id = f"{staff_id}_{hashlib.md5(str(template).encode()).hexdigest()[:8]}"
         template_cache[template_id] = template
         
@@ -252,173 +306,242 @@ def process_single_fingerprint():
             'quality_score': float(quality),
             'processing_time': float(processing_time)
         })
-        
     except Exception as e:
         logger.error(f"Error processing fingerprint: {e}")
         traceback.print_exc()
         return jsonify({'success': False, 'message': f'Error processing fingerprint: {str(e)}'}), 500
 
-class EnhancedFingerprintMatcher:
-    """Improved fingerprint matcher with multiple matching strategies"""
+class ImprovedFingerprintMatcher:
+    """Advanced fingerprint matcher with multiple adaptive matching strategies"""
     
     @staticmethod
     def match_minutiae(probe_minutiae, template_minutiae):
-        """Match fingerprints based on minutiae points"""
+        """Improved minutiae matching with spatial bucketing"""
         if not probe_minutiae or not template_minutiae:
             return 0
+        
+        DISTANCE_THRESHOLD = 30 
+        
+        bucket_size = 50  
+        template_buckets = {}
+        
+        for i, m in enumerate(template_minutiae):
+            bucket_x = m['x'] // bucket_size
+            bucket_y = m['y'] // bucket_size
+            bucket_key = f"{bucket_x}_{bucket_y}"
+            
+            if bucket_key not in template_buckets:
+                template_buckets[bucket_key] = []
+            
+            template_buckets[bucket_key].append((i, m))
         
         match_count = 0
         matched_indices = set()
         
-        # Convert to numpy arrays for faster processing
-        probe_points = np.array([[m['x'], m['y']] for m in probe_minutiae])
-        template_points = np.array([[m['x'], m['y']] for m in template_minutiae])
-        
-        # Use spatial matching with distance threshold
-        for i, p_point in enumerate(probe_points):
-            # Calculate Euclidean distances between this point and all template points
-            distances = np.sqrt(np.sum((template_points - p_point)**2, axis=1))
+        for i, p_minutia in enumerate(probe_minutiae):
+            p_bucket_x = p_minutia['x'] // bucket_size
+            p_bucket_y = p_minutia['y'] // bucket_size
             
-            if distances.size > 0:
-                min_idx = np.argmin(distances)
-                min_dist = distances[min_idx]
+            candidates = []
+            for dx in [-1, 0, 1]:
+                for dy in [-1, 0, 1]:
+                    bucket_key = f"{p_bucket_x + dx}_{p_bucket_y + dy}"
+                    if bucket_key in template_buckets:
+                        candidates.extend(template_buckets[bucket_key])
+            
+            best_match_idx = -1
+            best_match_dist = float('inf')
+            
+            for t_idx, t_minutia in candidates:
+                if t_idx in matched_indices:
+                    continue
                 
-                # Consider a match if distance is below threshold
-                if min_dist < 25 and min_idx not in matched_indices:
-                    # Check minutiae type if available
-                    if (i < len(probe_minutiae) and min_idx < len(template_minutiae) and
-                        'type' in probe_minutiae[i] and 'type' in template_minutiae[min_idx]):
-                        
-                        # If types match, provide higher score
-                        if probe_minutiae[i]['type'] == template_minutiae[min_idx]['type']:
-                            match_count += 1.2
-                        else:
-                            match_count += 0.8
-                    else:
-                        match_count += 1
-                        
-                    matched_indices.add(min_idx)
+                dist = np.sqrt((p_minutia['x'] - t_minutia['x'])**2 + 
+                               (p_minutia['y'] - t_minutia['y'])**2)
+                
+                if dist < best_match_dist and dist < DISTANCE_THRESHOLD:
+                    best_match_dist = dist
+                    best_match_idx = t_idx
+            
+            if best_match_idx >= 0:
+                match_score = 1.0
+                
+                if ('type' in p_minutia and 
+                    'type' in template_minutiae[best_match_idx]):
+                    
+                    if p_minutia['type'] == template_minutiae[best_match_idx]['type']:
+                        match_score = 1.2
+                
+                match_count += match_score
+                matched_indices.add(best_match_idx)
         
-        # Calculate score based on matches
         total_points = max(len(probe_minutiae), len(template_minutiae))
         if total_points == 0:
             return 0
             
         score = match_count / total_points
-        return min(1.0, score)  # Cap at 1.0
+        return min(1.0, score)  
     
     @staticmethod
-    def match_descriptors(probe_descriptors, template_descriptors):
-        """Optimized descriptor matching using Hamming distance"""
-        if not probe_descriptors or not template_descriptors:
-            return 0
+    def match_descriptors(probe_orb, template_orb, probe_akaze=None, template_akaze=None):
+        """Improved descriptor matching using both ORB and AKAZE features"""
+        score = 0
+        score_count = 0
         
-        # Convert to numpy arrays if needed
-        if isinstance(probe_descriptors, list):
-            probe_descriptors = np.array(probe_descriptors, dtype=np.uint8)
+        if probe_orb and template_orb:
+            if isinstance(probe_orb, list):
+                probe_orb = np.array(probe_orb, dtype=np.uint8)
+            
+            if isinstance(template_orb, list):
+                template_orb = np.array(template_orb, dtype=np.uint8)
+            
+            bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+            
+            if len(probe_orb.shape) == 1:
+                probe_orb = probe_orb.reshape(1, -1)
+            if len(template_orb.shape) == 1:
+                template_orb = template_orb.reshape(1, -1)
+                
+            if probe_orb.shape[0] > 0 and template_orb.shape[0] > 0:
+                min_cols = min(probe_orb.shape[1], template_orb.shape[1])
+                p_orb = probe_orb[:, :min_cols]
+                t_orb = template_orb[:, :min_cols]
+                matches = bf.match(p_orb, t_orb)
+                matches = sorted(matches, key=lambda x: x.distance) 
+                good_matches = [m for m in matches if m.distance < 70]  
+                orb_score = len(good_matches) / max(len(p_orb), len(t_orb))
+                score += orb_score
+                score_count += 1
         
-        if isinstance(template_descriptors, list):
-            template_descriptors = np.array(template_descriptors, dtype=np.uint8)
+        if probe_akaze and template_akaze:
+            if isinstance(probe_akaze, list):
+                probe_akaze = np.array(probe_akaze, dtype=np.float32)
+            
+            if isinstance(template_akaze, list):
+                template_akaze = np.array(template_akaze, dtype=np.float32)
+            
+            if len(probe_akaze.shape) == 1:
+                probe_akaze = probe_akaze.reshape(1, -1)
+            if len(template_akaze.shape) == 1:
+                template_akaze = template_akaze.reshape(1, -1)
+                
+            if probe_akaze.shape[0] > 0 and template_akaze.shape[0] > 0:
+                min_cols = min(probe_akaze.shape[1], template_akaze.shape[1])
+                p_akaze = probe_akaze[:, :min_cols]
+                t_akaze = template_akaze[:, :min_cols]
+                bf_akaze = cv2.BFMatcher(cv2.NORM_L2, crossCheck=True) 
+                akaze_matches = bf_akaze.match(p_akaze, t_akaze) 
+                akaze_matches = sorted(akaze_matches, key=lambda x: x.distance) 
+                good_akaze_matches = [m for m in akaze_matches if m.distance < 0.8]
+                akaze_score = len(good_akaze_matches) / max(len(p_akaze), len(t_akaze))
+                score += akaze_score
+                score_count += 1
         
-        # Ensure arrays have compatible shapes
-        min_rows = min(probe_descriptors.shape[0], template_descriptors.shape[0])
-        min_cols = min(probe_descriptors.shape[1], template_descriptors.shape[1])
-        
-        # Use smaller arrays for comparison
-        p_desc = probe_descriptors[:min_rows, :min_cols]
-        t_desc = template_descriptors[:min_rows, :min_cols]
-        
-        # Calculate matching using bit-wise operations (Hamming distance)
-        bit_diffs = np.bitwise_xor(p_desc, t_desc)
-        hamming_distances = np.sum(np.unpackbits(bit_diffs, axis=1), axis=1)
-        
-        # Find best matches - lowest Hamming distance
-        match_count = np.sum(hamming_distances < (min_cols * 8 * 0.25))  # Match if less than 25% bits differ
-        
-        # Score based on match ratio
-        score = match_count / min_rows if min_rows > 0 else 0
-        return min(1.0, score * 1.5)  # Scale up but cap at 1.0
+        return (score / score_count) if score_count > 0 else 0
     
     @staticmethod
     def match_keypoints(probe_keypoints, template_keypoints):
-        """Match based on keypoint locations and attributes"""
+        """Match based on keypoint distribution patterns"""
         if not probe_keypoints or not template_keypoints:
             return 0
-            
-        match_count = 0
-        matched_indices = set()
         
-        # For each probe keypoint, find closest template keypoint
-        for i, p_kp in enumerate(probe_keypoints):
-            best_match_idx = -1
-            best_match_dist = float('inf')
+        DISTANCE_THRESHOLD = 35 
+        
+        p_by_detector = {}
+        t_by_detector = {}
+        
+        for kp in probe_keypoints:
+            detector = kp.get('detector', 'unknown')
+            if detector not in p_by_detector:
+                p_by_detector[detector] = []
+            p_by_detector[detector].append(kp)
             
-            # Find closest keypoint by position and attribute similarity
-            for j, t_kp in enumerate(template_keypoints):
-                if j in matched_indices:
-                    continue
+        for kp in template_keypoints:
+            detector = kp.get('detector', 'unknown')
+            if detector not in t_by_detector:
+                t_by_detector[detector] = []
+            t_by_detector[detector].append(kp)
+        
+        scores = []
+        
+        for detector in set(list(p_by_detector.keys()) + list(t_by_detector.keys())):
+            p_kps = p_by_detector.get(detector, [])
+            t_kps = t_by_detector.get(detector, [])
+            
+            if not p_kps or not t_kps:
+                continue
+            
+            match_count = 0
+            matched_indices = set()
+            
+            for i, p_kp in enumerate(p_kps):
+                best_match_idx = -1
+                best_match_dist = float('inf')
+                
+                for j, t_kp in enumerate(t_kps):
+                    if j in matched_indices:
+                        continue
                     
-                # Calculate position distance
-                pos_dist = np.sqrt((p_kp['x'] - t_kp['x'])**2 + (p_kp['y'] - t_kp['y'])**2)
+                    pos_dist = np.sqrt((p_kp['x'] - t_kp['x'])**2 + (p_kp['y'] - t_kp['y'])**2)
+                    
+                    size_diff = abs(p_kp['size'] - t_kp['size']) / max(p_kp['size'], t_kp['size'])
+                    angle_diff = min(abs(p_kp['angle'] - t_kp['angle']), 
+                                     360 - abs(p_kp['angle'] - t_kp['angle'])) / 180
+                    
+                    combined_dist = pos_dist * 0.7 + size_diff * 0.2 + angle_diff * 0.1
+                    
+                    if combined_dist < best_match_dist:
+                        best_match_dist = combined_dist
+                        best_match_idx = j
                 
-                # Calculate attribute similarity
-                size_diff = abs(p_kp['size'] - t_kp['size']) / max(p_kp['size'], t_kp['size'])
-                angle_diff = min(abs(p_kp['angle'] - t_kp['angle']), 360 - abs(p_kp['angle'] - t_kp['angle'])) / 180
-                
-                # Combined distance metric
-                combined_dist = pos_dist * 0.6 + size_diff * 0.2 + angle_diff * 0.2
-                
-                if combined_dist < best_match_dist:
-                    best_match_dist = combined_dist
-                    best_match_idx = j
+                if best_match_idx != -1 and best_match_dist < DISTANCE_THRESHOLD:
+                    match_count += 1
+                    matched_indices.add(best_match_idx)
             
-            # Count as match if distance is below threshold
-            if best_match_idx != -1 and best_match_dist < 30:
-                match_count += 1
-                matched_indices.add(best_match_idx)
+            detector_score = match_count / max(len(p_kps), len(t_kps))
+            scores.append(detector_score)
         
-        # Calculate score
-        total_keypoints = max(len(probe_keypoints), len(template_keypoints))
-        if total_keypoints == 0:
-            return 0
-            
-        score = match_count / total_keypoints
-        return min(1.0, score)
+        return sum(scores) / len(scores) if scores else 0
     
     @staticmethod
     def match_combined(probe_features, template_features):
-        """Combined matcher using weighted average of multiple strategies"""
+        """Combined matcher with improved weights and partial matching"""
         scores = []
         weights = []
         
-        # Match minutiae points
         if probe_features.get('minutiae') and template_features.get('minutiae'):
-            minutiae_score = EnhancedFingerprintMatcher.match_minutiae(
+            minutiae_score = ImprovedFingerprintMatcher.match_minutiae(
                 probe_features['minutiae'], 
                 template_features['minutiae']
             )
             scores.append(minutiae_score)
-            weights.append(0.5)  # Minutiae are important
+            weights.append(0.45) 
         
-        # Match descriptors
-        if probe_features.get('descriptors') and template_features.get('descriptors'):
-            desc_score = EnhancedFingerprintMatcher.match_descriptors(
-                probe_features['descriptors'],
-                template_features['descriptors']
+        if ((probe_features.get('orb_descriptors') and template_features.get('orb_descriptors')) or
+            (probe_features.get('akaze_descriptors') and template_features.get('akaze_descriptors'))):
+            
+            desc_score = ImprovedFingerprintMatcher.match_descriptors(
+                probe_features.get('orb_descriptors', []),
+                template_features.get('orb_descriptors', []),
+                probe_features.get('akaze_descriptors', []),
+                template_features.get('akaze_descriptors', [])
             )
             scores.append(desc_score)
-            weights.append(0.35)  # Descriptors provide good discrimination
+            weights.append(0.35)
         
-        # Match keypoints
         if probe_features.get('keypoints') and template_features.get('keypoints'):
-            kp_score = EnhancedFingerprintMatcher.match_keypoints(
+            kp_score = ImprovedFingerprintMatcher.match_keypoints(
                 probe_features['keypoints'],
                 template_features['keypoints']
             )
             scores.append(kp_score)
-            weights.append(0.15)  # Keypoints provide additional context
+            weights.append(0.20)
         
-        # Calculate weighted score
+        p_quality = probe_features.get('quality', {}).get('overall', 50)
+        t_quality = template_features.get('quality', {}).get('overall', 50)
+        
+        quality_factor = (p_quality + t_quality) / 200 
+        
         if not scores:
             return 0
         
@@ -429,7 +552,11 @@ class EnhancedFingerprintMatcher:
         normalized_weights = [w / weights_sum for w in weights]
         combined_score = sum(s * w for s, w in zip(scores, normalized_weights))
         
-        return combined_score
+        if quality_factor < 0.6: 
+            quality_boost = 1 + (0.6 - quality_factor) * 0.5
+            combined_score *= quality_boost
+        
+        return min(1.0, combined_score)
 
 @app.route('/api/fingerprint/match', methods=['POST'])
 def match_fingerprint():
@@ -441,7 +568,6 @@ def match_fingerprint():
         return jsonify({'success': False, 'message': 'Missing fingerprint data'}), 400
     
     try:
-        # Process the query fingerprint
         features = process_fingerprint(data['fingerPrint'])
         
         if not features:
@@ -451,7 +577,7 @@ def match_fingerprint():
                 'message': 'Could not extract features from fingerprint'
             }), 400
         
-        # Check quality
+        # Quality check - with more lenient threshold
         # quality = features.get('quality', {}).get('overall', 0)
         # if quality < Config.QUALITY_THRESHOLD:
         #     return jsonify({
@@ -464,9 +590,8 @@ def match_fingerprint():
         if 'templates' not in data or not data['templates']:
             return jsonify({'success': False, 'message': 'No templates provided'}), 400
             
-        # Match against all templates
         match_results = []
-        matcher = EnhancedFingerprintMatcher()
+        matcher = ImprovedFingerprintMatcher()
         
         logger.info(f"Matching fingerprint against {len(data['templates'])} templates")
         
@@ -477,27 +602,23 @@ def match_fingerprint():
             if not staff_id or not template:
                 continue
                 
-            # Check cache for this template
             template_id = t.get('template_id')
             if template_id and template_id in template_cache:
                 template = template_cache[template_id]
                 
-            # Match using enhanced algorithm
             score = matcher.match_combined(features, template)
             
             match_results.append({
                 'staffId': staff_id,
-                'score': float(score)
+                'score': float(score),
+                'quality': template.get('quality', {}).get('overall', 0)
             })
         
-        # Sort by score
         match_results.sort(key=lambda x: x['score'], reverse=True)
         
-        # Determine match
         if match_results and match_results[0]['score'] >= Config.MATCH_THRESHOLD:
             top_match = match_results[0]
             
-            # Determine confidence level
             confidence = "low"
             if top_match['score'] >= 0.7:
                 confidence = "high"
@@ -553,7 +674,6 @@ def verify_fingerprint():
     try:
         staff_id = data['staffId']
         
-        # Process the fingerprint
         features = process_fingerprint(data['fingerPrint'])
         
         if not features:
@@ -563,9 +683,8 @@ def verify_fingerprint():
                 'message': 'Could not extract features from fingerprint'
             }), 400
         
-        # Check quality
         quality = features.get('quality', {}).get('overall', 0)
-        if quality < Config.QUALITY_THRESHOLD:
+        if quality < (Config.QUALITY_THRESHOLD * 0.8): 
             return jsonify({
                 'success': False,
                 'verified': False,
@@ -576,18 +695,15 @@ def verify_fingerprint():
         if 'templates' not in data or not data['templates']:
             return jsonify({'success': False, 'message': 'No templates provided'}), 400
         
-        # Find templates for this staff ID
         staff_templates = []
         for t in data['templates']:
             if t.get('staffId') == staff_id and 'template' in t:
-                # Check cache first
                 template_id = t.get('template_id')
                 if template_id and template_id in template_cache:
                     staff_templates.append(template_cache[template_id])
                 else:
                     staff_templates.append(t['template'])
                     
-                    # Update cache
                     if not template_id:
                         template_id = f"{staff_id}_{uuid.uuid4().hex[:8]}"
                     template_cache[template_id] = t['template']
@@ -599,18 +715,16 @@ def verify_fingerprint():
                 'message': 'No templates found for this staff ID'
             }), 404
         
-        # Match against each template and get best score
-        matcher = EnhancedFingerprintMatcher()
+        matcher = ImprovedFingerprintMatcher()
         best_score = 0
         
         for template in staff_templates:
             score = matcher.match_combined(features, template)
             best_score = max(best_score, score)
         
-        # Determine if verified
-        verified = best_score >= Config.MATCH_THRESHOLD
+        verification_threshold = Config.MATCH_THRESHOLD * 0.9 
+        verified = best_score >= verification_threshold
         
-        # Determine confidence level
         confidence = "low"
         if best_score >= 0.7:
             confidence = "high"
@@ -649,7 +763,7 @@ def server_status():
     """Get server status and statistics"""
     return jsonify({
         'status': 'running',
-        'version': '4.2',  # Enhanced version
+        'version': '5.0',  
         'uptime': time.time(),
         'cores': NUM_CORES,
         'cached_templates': len(template_cache),
@@ -664,5 +778,5 @@ def health_check():
     return jsonify({'status': 'ok', 'timestamp': time.time()})
 
 if __name__ == '__main__':
-    logger.info(f"Starting enhanced fingerprint server on port 5500 using {NUM_CORES} cores")
+    logger.info(f"Starting improved fingerprint server on port 5500 using {NUM_CORES} cores")
     app.run(host='0.0.0.0', port=5500, debug=Config.DEBUG_MODE, threaded=True)
