@@ -13,6 +13,7 @@ const {
   getTodayAttendance,
   markAbsentees,
   getAttendanceStats,
+  getPublicAttendance,
 } = require("../controllers/attendanceController");
 
 // Auth required for all routes
@@ -23,7 +24,7 @@ router.post("/clock-in", clockIn);
 router.post("/clock-out", clockOut);
 router.post("/lunch-start", startLunch);
 router.post("/lunch-end", endLunch);
-
+router.get("/getPublicAttendance", getPublicAttendance);
 // Reason submission
 router.post("/submit-reason", protect, submitReason);
 

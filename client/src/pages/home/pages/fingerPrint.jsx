@@ -17,6 +17,8 @@ const FingerprintAttendance = () => {
   const {
     matchFingerprint,
     recordAttendance,
+    getPublicAttendance,
+    publicAttendance,
     message,
     reset,
     isSuccess,
@@ -76,7 +78,15 @@ const FingerprintAttendance = () => {
   ];
 
   useEffect(() => {
-    setAttendanceHistory(mockHistory);
+    if (publicAttendance) {
+      console.log(publicAttendance);
+
+      setAttendanceHistory(publicAttendance);
+    }
+  }, [publicAttendance]);
+
+  useEffect(() => {
+    getPublicAttendance();
   }, []);
 
   useEffect(() => {
@@ -501,7 +511,7 @@ const FingerprintAttendance = () => {
                         </div>
                       </div>
                       <div className="text-xs text-gray-400">
-                        {record.date.toLocaleTimeString([], {
+                        {new Date(record.date).toLocaleTimeString([], {
                           hour: "2-digit",
                           minute: "2-digit",
                         })}

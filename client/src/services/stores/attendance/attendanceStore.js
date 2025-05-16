@@ -4,6 +4,7 @@ import axiosTools from "../../utilities/axiosUtils";
 const base = "attendance";
 const useAttendanceStore = create((set, get) => ({
   data: [],
+  publicAttendance: [],
   isLoading: false,
   message: "",
   isSuccess: false,
@@ -18,6 +19,26 @@ const useAttendanceStore = create((set, get) => ({
 
       set({
         data: res.data,
+        isSuccess: res.success,
+      });
+    } catch (error) {
+      set({
+        isSuccess: false,
+        message: error?.response?.data?.message || "Something went wrong",
+      });
+    }
+  },
+
+  getPublicAttendance: async () => {
+    try {
+      const res = await axiosTools.getData(
+        `${base}/getPublicAttendance`,
+        "",
+        ""
+      );
+
+      set({
+        publicAttendance: res.data,
         isSuccess: res.success,
       });
     } catch (error) {

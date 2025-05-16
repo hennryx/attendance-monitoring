@@ -1,10 +1,75 @@
-// controllers/attendanceController.js
 const Attendance = require("../models/Attendance");
 const Users = require("../models/Users");
 const Shift = require("../models/Shift");
 const FingerPrint = require("../models/FingerPrint");
 const fingerprintService = require("../service/fingerprintService");
 const mongoose = require("mongoose");
+
+exports.getPublicAttendance = async (req, res) => {
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    const attendanceRecords = await Attendance.find({
+      date: { $gte: today, $lt: tomorrow },
+    }).populate(
+      "staffId",
+      "firstname lastname middlename email department position"
+    );
+
+    const activityHistory = attendanceRecords
+      .map((record) => {
+        let actionType = "";
+        let actionTime = null;
+
+        if (record.timeOut) {
+          actionType = "out";
+          actionTime = new Date(record.timeOut);
+        } else if (record.lunchEnd) {
+          actionType = "lunch-end";
+          actionTime = new Date(record.lunchEnd);
+        } else if (record.lunchStart) {
+          actionType = "lunch-start";
+          actionTime = new Date(record.lunchStart);
+        } else if (record.timeIn) {
+          actionType = "in";
+          actionTime = new Date(record.timeIn);
+        }
+
+        if (!actionTime) return null;
+
+        const staffName = record.staffId
+          ? `${record.staffId.firstname} ${record.staffId.middlename || ""} ${
+              record.staffId.lastname
+            }`.trim()
+          : "Unknown Staff";
+
+        return {
+          date: actionTime,
+          type: actionType,
+          name: staffName,
+          department: record.staffId?.department || "",
+        };
+      })
+      .filter((record) => record !== null)
+      .sort((a, b) => b.date - a.date);
+
+    res.status(200).json({
+      success: true,
+      count: activityHistory.length,
+      data: activityHistory,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      success: false,
+      message: "Error retrieving attendance activity",
+      error: err.message,
+    });
+  }
+};
 
 exports.clockIn = async (req, res) => {
   try {
@@ -920,25 +985,7 @@ exports.markAbsentees = async (req, res) => {
 exports.scheduleAbsenteeMarking = () => {
   console.log("Setting up scheduled task for automatic absence marking");
 
-  // Schedule to run at 8 PM every day
-  const scheduledTime = "0 20 * * *"; // Cron format: minute hour day month day-of-week
-
-  // Use a scheduling library like node-cron to handle this
-  // This is pseudo-code and needs to be implemented with a proper scheduler
-  /*
-  cron.schedule(scheduledTime, async () => {
-    try {
-      const today = new Date();
-      const response = await axios.post(`${process.env.SERVER_URL}/api/attendance/mark-absentees`, { 
-        date: today.toISOString().split('T')[0]
-      });
-      
-      console.log(`Auto-marked absences: ${response.data.count} staff`);
-    } catch (error) {
-      console.error('Error in scheduled absence marking:', error);
-    }
-  });
-  */
+  const scheduledTime = "0 20 * * *";
 };
 
 // Get attendance statistics for a specified period
