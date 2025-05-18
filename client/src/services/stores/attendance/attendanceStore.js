@@ -14,6 +14,22 @@ const useAttendanceStore = create((set, get) => ({
   matchedUser: null,
   isMatched: false,
 
+  getRecentAttendance: async (data, token) => {
+    try {
+      const res = await axiosTools.getData(`${base}/getAll`, data, token);
+
+      set({
+        data: res.data,
+        isSuccess: res.success,
+      });
+    } catch (error) {
+      set({
+        isSuccess: false,
+        message: error?.response?.data?.message || "Something went wrong",
+      });
+    }
+  },
+
   getAttendance: async (token) => {
     try {
       const res = await axiosTools.getData(`${base}/getAll`, "", token);
