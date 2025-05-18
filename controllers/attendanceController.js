@@ -5,6 +5,106 @@ const FingerPrint = require("../models/FingerPrint");
 const fingerprintService = require("../service/fingerprintService");
 const mongoose = require("mongoose");
 
+exports.getAllAttendance = async (req, res) => {
+  try {
+    const { page = 1, limit = 50, startDate, endDate, status, staffId } = req.query;
+    
+    let query = {};
+    
+    if (staffId) {
+      query.staffId = staffId;
+    }
+    
+    if (status) {
+      query.status = status;
+    }
+    
+    if (startDate || endDate) {
+      query.date = {};
+      if (startDate) {
+        const start = new Date(startDate);
+        start.setHours(0, 0, 0, 0);
+        query.date.$gte = start;
+      }
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        query.date.$lte = end;
+      }
+    }
+    
+    const attendanceRecords = await Attendance.find(query)
+      .populate('staffId', 'firstname lastname middlename email department position')
+      .sort({ date: -1 })
+      .skip((page - 1) * limit)
+      .limit(parseInt(limit));
+      
+    const totalRecords = await Attendance.countDocuments(query);
+    
+    res.status(200).json({
+      success: true,
+      count: attendanceRecords.length,
+      total: totalRecords,
+      pages: Math.ceil(totalRecords / limit),
+      currentPage: parseInt(page),
+      data: attendanceRecords
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      success: false,
+      message: "Error retrieving attendance records",
+      error: err.message
+    });
+  }
+};
+
+exports.getRecentAttendance = async (req, res) => {
+  try {
+    const staffId = req.query.staffId;
+    
+    if (!staffId || !mongoose.Types.ObjectId.isValid(staffId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid or missing staff ID"
+      });
+    }
+    
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    sevenDaysAgo.setHours(0, 0, 0, 0);
+    
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    
+    const todayAttendance = await Attendance.findOne({
+      staffId: staffId,
+      date: { $gte: today, $lt: tomorrow }
+    });
+    
+    const recentAttendance = await Attendance.find({
+      staffId: staffId,
+      date: { $gte: sevenDaysAgo }
+    }).sort({ date: -1 });
+    
+    res.status(200).json({
+      success: true,
+      count: recentAttendance.length,
+      data: recentAttendance,
+      todayAttendance
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      success: false,
+      message: "Error retrieving recent attendance",
+      error: err.message
+    });
+  }
+};
+
 exports.getPublicAttendance = async (req, res) => {
   try {
     const today = new Date();

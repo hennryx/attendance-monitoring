@@ -113,14 +113,12 @@ exports.createLeaveRequest = async (req, res) => {
   }
 };
 
-// Get all leave requests (admin only)
 exports.getAllLeaveRequests = async (req, res) => {
   try {
     const leaveRequests = await LeaveRequest.find()
       .populate("staffId", "firstname lastname email department position")
       .sort({ createdAt: -1 });
 
-    // Format data for the response
     const formattedRequests = leaveRequests.map(request => {
       const staff = request.staffId;
       return {
@@ -278,6 +276,8 @@ exports.updateLeaveRequestStatus = async (req, res) => {
 exports.getUnhandledAbsences = async (req, res) => {
   try {
     const { id } = req.params;
+    console.log(id);
+    
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({

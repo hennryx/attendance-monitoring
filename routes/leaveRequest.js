@@ -3,9 +3,9 @@ const router = express.Router();
 const { protect, authorize } = require("../middlewares/auth");
 const { createLeaveRequest, getAllLeaveRequests, getUserLeaveRequests, updateLeaveRequestStatus, getUnhandledAbsences } = require("../controllers/leaveRequestController");
 
-router.get("/user-leave-requests/user/", getUserLeaveRequests);
-router.get("/get-leave-requests", getAllLeaveRequests);
-router.get("/attendance/unhandled-absences", getUnhandledAbsences);
+router.get("/user-leave-requests/user/:id", protect, getUserLeaveRequests);
+router.get("/get-leave-requests", protect, getAllLeaveRequests);
+router.get("/attendance/unhandled-absences/:id", protect, getUnhandledAbsences);
 
 router.post("/leave-requests", protect, createLeaveRequest);
 
