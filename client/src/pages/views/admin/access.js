@@ -1,6 +1,7 @@
 import AddNewUser from "./addNewUser";
 import DashBoard from "./dashboard";
 import PayrollManagement from "./payroll";
+import LeaveRequestsPage from "./leaveRequests";
 
 import {
   BsGrid1X2,
@@ -8,6 +9,8 @@ import {
   BsCashStack,
   BsClockHistory,
   BsGear,
+  BsCalendarCheck,
+  BsFileEarmarkText,
 } from "react-icons/bs";
 import StaffScheduleManagement from "./staffSchedule";
 import ShiftManagement from "./shifts";
@@ -47,6 +50,20 @@ const access = [
     icon: BsCashStack,
     element: ShiftManagement,
   },
+
+  {
+    name: "Leave Requests",
+    path: "/leave-requests",
+    icon: BsCalendarCheck,
+    element: LeaveRequestsPage,
+  },
+/* 
+  {
+    name: "Reports",
+    path: "/reports",
+    icon: BsFileEarmarkText,
+    element: ReportsPage,
+  }, */
 ];
 
 export default access;

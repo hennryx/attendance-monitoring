@@ -1,17 +1,21 @@
-// client/src/pages/views/staff/dashboard/index.jsx
 import React, { useEffect, useState } from "react";
 import {
   FaRegMoneyBillAlt,
   FaCalendarAlt,
   FaClock,
   FaExclamationCircle,
+  FaPlus,
+  FaClipboardList,
 } from "react-icons/fa";
+import { useLocation, useNavigate } from "react-router-dom";
 import useAuthStore from "../../../../services/stores/authStore";
 import useAttendanceStore from "../../../../services/stores/attendance/attendanceStore";
-import axiosTools from "../../../../services/utilities/axiosUtils";
-import { ENDPOINT } from "../../../../services/utilities";
+import useNotificationStore from "../../../../services/stores/notificationStore";
 import Swal from "sweetalert2";
 import { format } from "date-fns";
+import AbsenceReasonDialog from "../../../../components/absenceReason/absenceReasonDialog";
+import useLeaveRequestStore from "../../../../services/stores/attendance/leaveRequestStore";
+import LeaveRequestForm from "../../../../components/leaveRequest/leaveRequestForm"
 
 const Dashboard = () => {
   const { token, auth } = useAuthStore();
@@ -22,8 +26,11 @@ const Dashboard = () => {
     submitReason,
     isLoading,
   } = useAttendanceStore();
+  const { getUnhandledAbsences, getUserLeaveRequests } = useLeaveRequestStore();
+  const { addAbsenceReasonNotification } = useNotificationStore();
+  const location = useLocation();
+  const navigate = useNavigate();
 
-  const [recentPayroll, setRecentPayroll] = useState(null);
   const [absenceReason, setAbsenceReason] = useState("");
   const [reasonSubmitting, setReasonSubmitting] = useState(false);
   const [time, setTime] = useState(new Date());
@@ -34,8 +41,12 @@ const Dashboard = () => {
     halfDay: 0,
     total: 0,
   });
+  const [showLeaveForm, setShowLeaveForm] = useState(false);
+  const [showAbsenceDialog, setShowAbsenceDialog] = useState(false);
+  const [absenceData, setAbsenceData] = useState(null);
+  const [pendingLeaveRequests, setPendingLeaveRequests] = useState([]);
+  const [todayActivities, setTodayActivities] = useState([]);
 
-  // Update current time
   useEffect(() => {
     const timer = setInterval(() => {
       setTime(new Date());
@@ -47,11 +58,52 @@ const Dashboard = () => {
   }, []);
 
   useEffect(() => {
-    if (!token || !auth?._id) return;
-    getRecentAttendance(auth._id, token);
+    if (location.state?.showAbsenceDialog && location.state?.absenceData) {
+      setAbsenceData(location.state.absenceData);
+      setShowAbsenceDialog(true);
+      window.history.replaceState({}, document.title);
+    }
+  }, [location.state]);
 
-    fetchRecentPayroll();
-  }, [token, auth]);
+  useEffect(() => {
+    if (!token || !auth?._id) return;
+    
+    getRecentAttendance(auth._id, token);
+    
+    const checkUnhandledAbsences = async () => {
+      try {
+        const absences = await getUnhandledAbsences(auth._id, token);
+        if (absences && absences.length > 0) {
+          absences.forEach(absence => {
+            addAbsenceReasonNotification(absence);
+          });
+          
+          if (!showAbsenceDialog && absences.length > 0) {
+            setAbsenceData(absences[0]);
+            setShowAbsenceDialog(true);
+          }
+        }
+      } catch (error) {
+        console.error("Error fetching unhandled absences:", error);
+      }
+    };
+    
+    const fetchPendingLeaveRequests = async () => {
+      try {
+        const requests = await getUserLeaveRequests(auth._id, token);
+        if (requests) {
+          setPendingLeaveRequests(
+            requests.filter((req) => req.status === "pending")
+          );
+        }
+      } catch (error) {
+        console.error("Error fetching leave requests:", error);
+      }
+    };
+    
+    checkUnhandledAbsences();
+    fetchPendingLeaveRequests();
+  }, [token, auth, getRecentAttendance, getUnhandledAbsences, getUserLeaveRequests, addAbsenceReasonNotification]);
 
   useEffect(() => {
     if (recentAttendance.length > 0) {
@@ -75,28 +127,49 @@ const Dashboard = () => {
       );
 
       setAttendanceSummary(summary);
-    }
-  }, [recentAttendance]);
-
-  // Fetch most recent payroll
-  const fetchRecentPayroll = async () => {
-    try {
-      const response = await axiosTools.getData(
-        `${ENDPOINT}/payroll/staff/${auth._id}`,
-        "",
-        token
-      );
-
-      if (response.success && response.data.length > 0) {
-        // Get the most recent one
-        setRecentPayroll(response.data[0]);
+      
+      if (todayAttendance) {
+        const activities = [];
+        
+        if (todayAttendance.timeIn) {
+          activities.push({
+            type: "Clock In",
+            time: new Date(todayAttendance.timeIn),
+            icon: <FaClock className="text-green-500" />
+          });
+        }
+        
+        if (todayAttendance.lunchStart) {
+          activities.push({
+            type: "Lunch Start",
+            time: new Date(todayAttendance.lunchStart),
+            icon: <FaRegMoneyBillAlt className="text-orange-500" />
+          });
+        }
+        
+        if (todayAttendance.lunchEnd) {
+          activities.push({
+            type: "Lunch End",
+            time: new Date(todayAttendance.lunchEnd),
+            icon: <FaRegMoneyBillAlt className="text-blue-500" />
+          });
+        }
+        
+        if (todayAttendance.timeOut) {
+          activities.push({
+            type: "Clock Out",
+            time: new Date(todayAttendance.timeOut),
+            icon: <FaClock className="text-red-500" />
+          });
+        }
+        
+        // Sort by time
+        activities.sort((a, b) => b.time - a.time);
+        setTodayActivities(activities);
       }
-    } catch (error) {
-      console.error("Error fetching payroll data:", error);
     }
-  };
+  }, [recentAttendance, todayAttendance]);
 
-  // Handle absence/late reason submission
   const handleSubmitReason = async () => {
     if (!absenceReason.trim()) {
       Swal.fire({
@@ -144,20 +217,6 @@ const Dashboard = () => {
     }
   };
 
-  // Download pay slip
-  const downloadPaySlip = (payrollId) => {
-    if (!payrollId) return;
-    window.open(`${ENDPOINT}/payroll/payslip/${payrollId}`, "_blank");
-  };
-
-  if (isLoading && !todayAttendance && recentAttendance.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-xl text-gray-600">Loading dashboard data...</div>
-      </div>
-    );
-  }
-
   return (
     <div className="relative isolate min-h-lvh overflow-hidden bg-[linear-gradient(to_bottom,#1b1b1b_25%,#FAFAFA_25%)]">
       <div
@@ -174,9 +233,17 @@ const Dashboard = () => {
       </div>
 
       <div className="container mx-auto p-4">
-        <h1 className="text-3xl text-white font-semibold mb-6">Dashboard</h1>
+        <div className="flex justify-between items-center mb-6">
+          <h1 className="text-3xl text-white font-semibold">Dashboard</h1>
+          <button
+            className="bg-[#FDBE02] hover:bg-[#E6AB00] text-black px-4 py-2 rounded-md flex items-center"
+            onClick={() => setShowLeaveForm(true)}
+          >
+            <FaPlus className="mr-2" />
+            Request Leave
+          </button>
+        </div>
 
-        {/* Quick Stats */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
           <div className="bg-white rounded-lg shadow p-4 flex items-center">
             <div className="p-3 bg-green-100 rounded-full text-green-500 mr-4">
@@ -215,25 +282,8 @@ const Dashboard = () => {
             </div>
           </div>
 
-          <div className="bg-white rounded-lg shadow p-4 flex items-center">
-            <div className="p-3 bg-blue-100 rounded-full text-blue-500 mr-4">
-              <FaRegMoneyBillAlt className="h-6 w-6" />
-            </div>
-            <div>
-              <p className="text-sm text-gray-500">Latest Pay</p>
-              <p className="text-2xl font-semibold">
-                {recentPayroll ? `₱${recentPayroll.netPay.toFixed(2)}` : "N/A"}
-              </p>
-              <p className="text-xs text-gray-400">
-                {recentPayroll
-                  ? format(new Date(recentPayroll.periodEnd), "MMM d, yyyy")
-                  : "No recent payroll"}
-              </p>
-            </div>
-          </div>
         </div>
 
-        {/* Current Time & Status */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
           <div className="bg-white rounded-lg shadow p-6 md:col-span-1">
             <div className="text-4xl font-bold text-center mb-2">
@@ -327,17 +377,101 @@ const Dashboard = () => {
             </div>
           </div>
 
-          {/* Reason Submission (only for absent or late) */}
           <div className="bg-white rounded-lg shadow p-6 md:col-span-2">
-            {todayAttendance &&
-            (todayAttendance.status === "absent" ||
-              todayAttendance.status === "late" ||
-              todayAttendance.status === "half-day") &&
-            !todayAttendance.reason ? (
-              <>
-                <h2 className="text-xl font-semibold mb-4">Submit Reason</h2>
-                <div className="mb-4">
-                  <p className="text-gray-600 mb-2">
+            <h2 className="text-xl font-semibold mb-4 flex items-center">
+              <FaClipboardList className="mr-2 text-blue-500" />
+              Today's Activities
+            </h2>
+            
+            <div className="relative">
+              <div className="absolute left-[18px] top-0 bottom-0 w-0.5 bg-gray-200" />
+              
+              <div className="space-y-4">
+                {todayActivities.length > 0 ? (
+                  todayActivities.map((activity, index) => (
+                    <div key={index} className="flex items-start">
+                      <div className="flex-shrink-0 mt-1">
+                        <div className="relative flex items-center justify-center w-9 h-9 rounded-full bg-white border-2 border-gray-200 z-10">
+                          {activity.icon}
+                        </div>
+                      </div>
+                      <div className="ml-4">
+                        <div className="font-medium">{activity.type}</div>
+                        <div className="text-sm text-gray-500">
+                          {format(activity.time, "h:mm a")}
+                        </div>
+                      </div>
+                      <div className="ml-auto text-right">
+                        <div className="text-xs text-gray-400">
+                          {format(activity.time, "EEEE, MMMM d")}
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="flex items-center justify-center py-6 text-gray-500">
+                    No attendance activities recorded for today
+                  </div>
+                )}
+                
+                <div className="flex items-start">
+                  <div className="flex-shrink-0 mt-1">
+                    <div className="relative flex items-center justify-center w-9 h-9 rounded-full bg-blue-100 border-2 border-blue-400 z-10">
+                      <FaClock className="text-blue-500" />
+                    </div>
+                  </div>
+                  <div className="ml-4">
+                    <div className="font-medium">Current Time</div>
+                    <div className="text-sm text-blue-500">
+                      {format(new Date(), "h:mm a")}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            {pendingLeaveRequests.length > 0 && (
+              <div className="mt-6 pt-4 border-t border-gray-200">
+                <h3 className="font-medium text-gray-700 mb-2">Pending Leave Requests:</h3>
+                <div className="space-y-2">
+                  {pendingLeaveRequests.map((request, index) => (
+                    <div key={index} className="p-3 bg-yellow-50 rounded-lg border border-yellow-200">
+                      <div className="flex justify-between">
+                        <div className="font-medium">{format(new Date(request.startDate), "MMM d")} - {format(new Date(request.endDate), "MMM d, yyyy")}</div>
+                        <span className="px-2 text-xs font-medium rounded-full bg-yellow-100 text-yellow-800 flex items-center">
+                          Pending
+                        </span>
+                      </div>
+                      <div className="text-sm text-gray-600 mt-1">{request.leaveType.charAt(0).toUpperCase() + request.leaveType.slice(1)} Leave</div>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-3 text-right">
+                  <button
+                    className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                    onClick={() => navigate("/leave-history")}
+                  >
+                    View all leave requests →
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {todayAttendance &&
+          (todayAttendance.status === "absent" ||
+            todayAttendance.status === "late" ||
+            todayAttendance.status === "half-day") &&
+          !todayAttendance.reason && (
+            <div className="bg-white rounded-lg shadow p-6 mb-6">
+              <div className="flex items-start space-x-3">
+                <div className="flex-shrink-0">
+                  <FaExclamationCircle className="h-6 w-6 text-red-500" />
+                </div>
+                <div className="flex-1">
+                  <h2 className="text-xl font-semibold mb-2">Submit Reason</h2>
+                  <p className="text-gray-600 mb-4">
                     Please provide a reason for your{" "}
                     {todayAttendance.status === "absent"
                       ? "absence"
@@ -346,106 +480,27 @@ const Dashboard = () => {
                       : "lateness"}{" "}
                     today:
                   </p>
-                  <textarea
-                    className="w-full border border-gray-300 rounded p-2"
-                    rows="3"
-                    value={absenceReason}
-                    onChange={(e) => setAbsenceReason(e.target.value)}
-                    placeholder="Enter your reason here..."
-                  ></textarea>
-                </div>
-                <button
-                  className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded"
-                  onClick={handleSubmitReason}
-                  disabled={reasonSubmitting}
-                >
-                  {reasonSubmitting ? "Submitting..." : "Submit Reason"}
-                </button>
-              </>
-            ) : todayAttendance?.reason ? (
-              <>
-                <h2 className="text-xl font-semibold mb-4">Submitted Reason</h2>
-                <div className="p-3 bg-gray-100 rounded-lg">
-                  <p className="text-gray-600 mb-2">Your reason:</p>
-                  <p className="font-medium">{todayAttendance.reason}</p>
-                  <p className="text-sm text-gray-500 mt-2">
-                    {todayAttendance.reasonVerified
-                      ? "✓ Verified by administrator"
-                      : "Pending verification by administrator"}
-                  </p>
-                </div>
-              </>
-            ) : (
-              <>
-                <h2 className="text-xl font-semibold mb-4">Recent Payroll</h2>
-                {recentPayroll ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                    <div>
-                      <p className="text-gray-600 text-sm">Period</p>
-                      <p>
-                        {format(new Date(recentPayroll.periodStart), "MMM d")} -{" "}
-                        {format(
-                          new Date(recentPayroll.periodEnd),
-                          "MMM d, yyyy"
-                        )}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-gray-600 text-sm">Gross Pay</p>
-                      <p className="font-semibold">
-                        ₱{recentPayroll.grossPay.toFixed(2)}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-gray-600 text-sm">Net Pay</p>
-                      <p className="font-semibold">
-                        ₱{recentPayroll.netPay.toFixed(2)}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-gray-600 text-sm">Status</p>
-                      <p
-                        className={`
-                                                ${
-                                                  recentPayroll.paymentStatus ===
-                                                  "paid"
-                                                    ? "text-green-600"
-                                                    : recentPayroll.paymentStatus ===
-                                                      "pending"
-                                                    ? "text-yellow-600"
-                                                    : recentPayroll.paymentStatus ===
-                                                      "processing"
-                                                    ? "text-blue-600"
-                                                    : "text-gray-600"
-                                                }
-                                            `}
-                      >
-                        {recentPayroll.paymentStatus.charAt(0).toUpperCase() +
-                          recentPayroll.paymentStatus.slice(1)}
-                      </p>
-                    </div>
+                  <div className="mb-4">
+                    <textarea
+                      className="w-full border border-gray-300 rounded p-2"
+                      rows="3"
+                      value={absenceReason}
+                      onChange={(e) => setAbsenceReason(e.target.value)}
+                      placeholder="Enter your reason here..."
+                    ></textarea>
                   </div>
-                ) : (
-                  <p className="text-gray-500">
-                    No recent payroll information available
-                  </p>
-                )}
-
-                {recentPayroll && (
                   <button
-                    className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded flex items-center gap-2"
-                    onClick={() => downloadPaySlip(recentPayroll._id)}
+                    className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded"
+                    onClick={handleSubmitReason}
+                    disabled={reasonSubmitting}
                   >
-                    <FaRegMoneyBillAlt />
-                    Download Pay Slip
+                    {reasonSubmitting ? "Submitting..." : "Submit Reason"}
                   </button>
-                )}
-              </>
-            )}
-          </div>
-        </div>
+                </div>
+              </div>
+            </div>
+          )}
 
-        {/* Recent Attendance */}
         <div className="bg-white rounded-lg shadow p-6 mb-6">
           <h2 className="text-xl font-semibold mb-4">Recent Attendance</h2>
           <div className="overflow-x-auto">
@@ -546,6 +601,23 @@ const Dashboard = () => {
           </div>
         </div>
       </div>
+      
+      {showLeaveForm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-lg max-w-lg w-full">
+            <div className="p-4">
+              <LeaveRequestForm onClose={() => setShowLeaveForm(false)} />
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {showAbsenceDialog && absenceData && (
+        <AbsenceReasonDialog 
+          absenceData={absenceData}
+          onClose={() => setShowAbsenceDialog(false)}
+        />
+      )}
     </div>
   );
 };

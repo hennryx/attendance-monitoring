@@ -6,6 +6,7 @@ import { toast } from "react-toastify";
 import Logo from "../../assets/Logo.png";
 import ROLES from "../../pages/views/roles";
 import useAuthStore from "../../services/stores/authStore";
+import NotificationCenter from "../notifications";
 import Swal from "sweetalert2";
 
 const Header = ({ role }) => {
@@ -17,16 +18,13 @@ const Header = ({ role }) => {
   const [isHeaderVisible, setIsHeaderVisible] = useState(true);
   const [lastScrollY, setLastScrollY] = useState(0);
 
-  // Detect scroll direction
   useEffect(() => {
     const handleScroll = () => {
       const currentScrollY = window.scrollY;
 
       if (currentScrollY > lastScrollY) {
-        // Scrolling down, hide the header
         setIsHeaderVisible(false);
       } else {
-        // Scrolling up, show the header
         setIsHeaderVisible(true);
       }
 
@@ -78,6 +76,7 @@ const Header = ({ role }) => {
   }, [isSuccess, message]);
 
   const togglePopover = () => setIsPopoverOpen((prev) => !prev);
+  
   return (
     <header
       className={`bg-[#1b1b1b] w-full z-50 transition-transform duration-300 ${
@@ -136,30 +135,47 @@ const Header = ({ role }) => {
           })}
         </PopoverGroup>
 
-        <div className="hidden lg:flex relative">
-          <button
-            className="hover:text-amber-300 p-2 rounded text-base font-light text-white"
-            onClick={togglePopover}
-          >
-            Account
-          </button>
+        <div className="hidden lg:flex items-center space-x-4">
+          <NotificationCenter />
+          
+          <div className="relative">
+            <button
+              className="hover:text-amber-300 p-2 rounded text-base font-light text-white"
+              onClick={togglePopover}
+            >
+              Account
+            </button>
 
-          {isPopoverOpen && (
-            <div className="absolute right-0 mt-10 bg-white rounded shadow-md w-52 p-2 z-50">
-              <button
-                onClick={handleNavigateAccount}
-                className="block w-full text-left px-4 py-2 text-sm text-gray-800 hover:bg-gray-100 rounded"
-              >
-                Profile
-              </button>
-              <button
-                onClick={handleLogout}
-                className="block w-full text-left px-4 py-2 text-sm text-gray-800 hover:bg-gray-100 rounded"
-              >
-                Logout
-              </button>
-            </div>
-          )}
+            {isPopoverOpen && (
+              <div className="absolute right-0 mt-2 bg-white rounded shadow-md w-52 p-2 z-50">
+                <button
+                  onClick={handleNavigateAccount}
+                  className="block w-full text-left px-4 py-2 text-sm text-gray-800 hover:bg-gray-100 rounded"
+                >
+                  Profile
+                </button>
+                
+                {role === 'STAFF' && (
+                  <button
+                    onClick={() => {
+                      navigate("/leave-history");
+                      setIsPopoverOpen(false);
+                    }}
+                    className="block w-full text-left px-4 py-2 text-sm text-gray-800 hover:bg-gray-100 rounded"
+                  >
+                    My Leave Requests
+                  </button>
+                )}
+                
+                <button
+                  onClick={handleLogout}
+                  className="block w-full text-left px-4 py-2 text-sm text-gray-800 hover:bg-gray-100 rounded"
+                >
+                  Logout
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </nav>
 
@@ -217,10 +233,24 @@ const Header = ({ role }) => {
                     <div className="mt-2 space-y-2 bg-gray-50 rounded p-2 shadow-sm">
                       <button
                         onClick={handleNavigateAccount}
-                        className="flex items-center space-x-2 text-white"
+                        className="block w-full text-left text-sm text-gray-800 hover:underline"
                       >
                         Profile
                       </button>
+                      
+                      {role === 'STAFF' && (
+                        <button
+                          onClick={() => {
+                            navigate("/leave-history");
+                            setIsPopoverOpen(false);
+                            setMobileMenuOpen(false);
+                          }}
+                          className="block w-full text-left text-sm text-gray-800 hover:underline"
+                        >
+                          My Leave Requests
+                        </button>
+                      )}
+                      
                       <button
                         onClick={handleLogout}
                         className="block w-full text-left text-sm text-gray-800 hover:underline"

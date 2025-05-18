@@ -1,8 +1,9 @@
 import DashBoard from "./dashboard";
 
-import { BsGrid1X2, BsCashStack, BsClockHistory } from "react-icons/bs";
+import { BsGrid1X2, BsCashStack, BsClockHistory, BsCalendarCheck, BsFileEarmarkText } from "react-icons/bs";
 import PaySlip from "./payslip";
 import PayrollView from "./payroll";
+import LeaveHistoryPage from "./leaveHistory"
 
 const access = [
   {
@@ -11,6 +12,21 @@ const access = [
     icon: BsGrid1X2,
     element: DashBoard,
   },
+  
+  {
+    name: "Leave History",
+    path: "/leave-history",
+    icon: BsCalendarCheck,
+    element: LeaveHistoryPage,
+  }
+  /* ,
+  
+  {
+    name: "Reports",
+    path: "/reports",
+    icon: BsFileEarmarkText,
+    element: ReportsPage,
+  } */
   // {
   //   name: "My Payroll",
   //   path: "/payroll",
