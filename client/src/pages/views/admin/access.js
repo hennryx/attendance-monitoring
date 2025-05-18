@@ -1,19 +1,17 @@
 import AddNewUser from "./addNewUser";
 import DashBoard from "./dashboard";
-import PayrollManagement from "./payroll";
 import LeaveRequestsPage from "./leaveRequests";
 
 import {
   BsGrid1X2,
   BsPersonAdd,
   BsCashStack,
-  BsClockHistory,
-  BsGear,
   BsCalendarCheck,
-  BsFileEarmarkText,
+  BsBell,
 } from "react-icons/bs";
 import StaffScheduleManagement from "./staffSchedule";
 import ShiftManagement from "./shifts";
+import NotificationsPage from "../../Notifications";
 
 const access = [
   {
@@ -29,14 +27,7 @@ const access = [
     icon: BsPersonAdd,
     element: AddNewUser,
   },
-
-  // {
-  //   name: "Payroll",
-  //   path: "/payroll",
-  //   icon: BsCashStack,
-  //   element: PayrollManagement,
-  // },
-
+  
   {
     name: "Schedules",
     path: "/schedules",
@@ -56,6 +47,12 @@ const access = [
     path: "/leave-requests",
     icon: BsCalendarCheck,
     element: LeaveRequestsPage,
+  },
+  {
+    name: "Notifications",
+    path: "/notifications",
+    icon: BsBell,
+    element: NotificationsPage,
   },
 /* 
   {

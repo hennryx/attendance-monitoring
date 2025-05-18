@@ -84,6 +84,33 @@ const useAttendanceStore = create((set, get) => ({
         }
     },
 
+    submitReason: async (data, token) => {
+        set({ isLoading: true, message: "", isSuccess: false });
+        try {
+          const response = await axiosTools.saveData(
+            `${base}/submit-reason`,
+            data,
+            token
+          );
+          
+          set({
+            isSuccess: response.success,
+            isLoading: false,
+            message: response.message || "Reason submitted successfully",
+          });
+          
+          return response;
+        } catch (error) {
+          set({
+            isLoading: false,
+            message: error.message || "Failed to submit reason",
+            isSuccess: false,
+          });
+          
+          throw error;
+        }
+    },      
+
     matchFingerprint: async (fingerprint) => {
         set({
             isLoading: true,
