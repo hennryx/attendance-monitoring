@@ -18,7 +18,6 @@ const Dashboard = () => {
   const {
     todayAttendance,
     recentAttendance,
-    getStaffAttendance,
     getRecentAttendance,
     submitReason,
     isLoading,
@@ -47,21 +46,13 @@ const Dashboard = () => {
     };
   }, []);
 
-  // Fetch data when component mounts
   useEffect(() => {
     if (!token || !auth?._id) return;
-
-    // Fetch today's attendance
-    getStaffAttendance(auth._id, token);
-
-    // Fetch recent attendance (last 7 days)
     getRecentAttendance(auth._id, token);
 
-    // Fetch most recent payroll
     fetchRecentPayroll();
   }, [token, auth]);
 
-  // Calculate attendance summary when recent attendance changes
   useEffect(() => {
     if (recentAttendance.length > 0) {
       const summary = recentAttendance.reduce(
@@ -485,7 +476,7 @@ const Dashboard = () => {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {recentAttendance.length > 0 ? (
+                {recentAttendance?.length > 0 ? (
                   recentAttendance.map((record) => (
                     <tr key={record._id}>
                       <td className="px-6 py-4 whitespace-nowrap">
