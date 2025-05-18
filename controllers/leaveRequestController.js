@@ -272,12 +272,9 @@ exports.updateLeaveRequestStatus = async (req, res) => {
   }
 };
 
-// Get unhandled absences for a staff member
 exports.getUnhandledAbsences = async (req, res) => {
   try {
     const { id } = req.params;
-    console.log(id);
-    
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
