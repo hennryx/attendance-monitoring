@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import axiosTools from "../utilities/axiosUtils";
-import { ENDPOINT } from "../utilities";
 
+const baseUrl = "notifications"
 const useNotificationStore = create((set, get) => ({
     notifications: [],
     unreadCount: 0,
@@ -13,7 +13,7 @@ const useNotificationStore = create((set, get) => ({
         set({ isLoading: true });
         try {
             const response = await axiosTools.getData(
-                `${ENDPOINT}/notifications`,
+                `${baseUrl}/getUserNotifications`,
                 "",
                 token
             );
@@ -47,9 +47,7 @@ const useNotificationStore = create((set, get) => ({
 
     markAsRead: async (notificationId, token) => {
         try {
-            // Check if this is a mock notification (created on the frontend)
             if (typeof notificationId === 'string' && notificationId.length > 0) {
-                // For mock notifications, just update the local state
                 if (notificationId.startsWith(Date.now().toString().substring(0, 6))) {
                     set((state) => ({
                         notifications: state.notifications.map((notification) =>
@@ -63,9 +61,8 @@ const useNotificationStore = create((set, get) => ({
                 }
             }
 
-            // For real notifications, call the API
             const response = await axiosTools.updateData(
-                `${ENDPOINT}/notifications/${notificationId}/read`,
+                `${baseUrl}/${notificationId}/read`,
                 {},
                 token
             );
@@ -82,7 +79,6 @@ const useNotificationStore = create((set, get) => ({
                 return true;
             }
 
-            // If the API call fails, still update the UI for better UX
             set((state) => ({
                 notifications: state.notifications.map((notification) =>
                     notification._id === notificationId
@@ -96,7 +92,6 @@ const useNotificationStore = create((set, get) => ({
         } catch (error) {
             console.error("Failed to mark notification as read:", error);
 
-            // Even if the API call fails, update the UI for better UX
             set((state) => ({
                 notifications: state.notifications.map((notification) =>
                     notification._id === notificationId
@@ -113,7 +108,7 @@ const useNotificationStore = create((set, get) => ({
     markAllAsRead: async (token) => {
         try {
             const response = await axiosTools.updateData(
-                `${ENDPOINT}/notifications/read-all`,
+                `${baseUrl}/read-all`,
                 {},
                 token
             );
