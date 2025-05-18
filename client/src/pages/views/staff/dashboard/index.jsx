@@ -24,7 +24,6 @@ const Dashboard = () => {
     recentAttendance,
     getRecentAttendance,
     submitReason,
-    isLoading,
   } = useAttendanceStore();
   const { getUnhandledAbsences, getUserLeaveRequests } = useLeaveRequestStore();
   const { addAbsenceReasonNotification } = useNotificationStore();
