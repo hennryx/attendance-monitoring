@@ -1,6 +1,8 @@
 const LeaveRequest = require("../models/LeaveRequest");
 const Users = require("../models/Users");
 const Notification = require("../models/Notification");
+const Attendance = require("../models/Attendance");
+
 const mongoose = require("mongoose");
 
 exports.createLeaveRequest = async (req, res) => {
@@ -283,8 +285,6 @@ exports.getUnhandledAbsences = async (req, res) => {
       });
     }
 
-    // Get absences from Attendance model that have no reason
-    const Attendance = require("../models/Attendance");
     const oneWeekAgo = new Date();
     oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
 
@@ -295,7 +295,6 @@ exports.getUnhandledAbsences = async (req, res) => {
       date: { $gte: oneWeekAgo }
     }).sort({ date: -1 });
 
-    // Format for response
     const formattedAbsences = absences.map(absence => ({
       attendanceId: absence._id,
       date: absence.date,
@@ -303,6 +302,8 @@ exports.getUnhandledAbsences = async (req, res) => {
       staffId: id
     }));
 
+    console.log(formattedAbsences);
+    
     res.status(200).json({
       success: true,
       count: formattedAbsences.length,

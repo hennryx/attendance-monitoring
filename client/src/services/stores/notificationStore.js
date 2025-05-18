@@ -19,6 +19,8 @@ const useNotificationStore = create((set, get) => ({
             );
 
             if (response.success) {
+                console.log(response.data);
+                
                 const unreadCount = response.data.filter(
                     (notification) => !notification.read
                 ).length;
@@ -135,7 +137,7 @@ const useNotificationStore = create((set, get) => ({
             _id: Date.now().toString(),
             type: 'absence_reason',
             title: 'Absence Reason Required',
-            message: `You were absent on ${new Date(absenceData.date).toLocaleDateString()}. Please provide a reason.`,
+            message: `You were ${absenceData.status} on ${new Date(absenceData.date).toLocaleDateString()}. Please provide a reason.`,
             data: absenceData,
             read: false,
             createdAt: new Date().toISOString()

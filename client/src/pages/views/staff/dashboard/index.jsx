@@ -7,7 +7,7 @@ import {
     FaPlus,
     FaClipboardList,
 } from "react-icons/fa";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import useAuthStore from "../../../../services/stores/authStore";
 import useAttendanceStore from "../../../../services/stores/attendance/attendanceStore";
 import useNotificationStore from "../../../../services/stores/notificationStore";
@@ -26,8 +26,7 @@ const Dashboard = () => {
         submitReason,
     } = useAttendanceStore();
     const { getUnhandledAbsences, getUserLeaveRequests } = useLeaveRequestStore();
-    const { addAbsenceReasonNotification } = useNotificationStore();
-    const location = useLocation();
+    const { addAbsenceReasonNotification, clearAll } = useNotificationStore();
     const navigate = useNavigate();
 
     const [absenceReason, setAbsenceReason] = useState("");
@@ -57,21 +56,16 @@ const Dashboard = () => {
     }, []);
 
     /* useEffect(() => {
-        if (location.state?.showAbsenceDialog && location.state?.absenceData) {
-            setAbsenceData(location.state.absenceData);
-            setShowAbsenceDialog(true);
-            window.history.replaceState({}, document.title);
-        }
-    }, [location.state]); */
-
-    useEffect(() => {
         if (!token || !auth?._id) return;
 
         getRecentAttendance(auth._id, token);
 
         const checkUnhandledAbsences = async () => {
             try {
+                clearAll()
                 const absences = await getUnhandledAbsences(auth._id, token);
+                console.log(absences);
+                
                 if (absences && absences.length > 0) {
                     absences.forEach(absence => {
                         addAbsenceReasonNotification(absence);
@@ -79,7 +73,6 @@ const Dashboard = () => {
 
                     if (!showAbsenceDialog && absences.length > 0) {
                         setAbsenceData(absences[0]);
-                        /* setShowAbsenceDialog(true); */
                     }
                 }
             } catch (error) {
@@ -102,11 +95,9 @@ const Dashboard = () => {
 
         checkUnhandledAbsences();
         fetchPendingLeaveRequests();
-    }, [token, auth, getRecentAttendance, getUnhandledAbsences, getUserLeaveRequests, addAbsenceReasonNotification]);
+    }, [token, auth, getRecentAttendance, getUnhandledAbsences, getUserLeaveRequests, addAbsenceReasonNotification]); */
 
     useEffect(() => {
-        console.log(data);
-
         if (data.length > 0) {
             const summary = data.reduce(
                 (acc, record) => {
@@ -164,7 +155,6 @@ const Dashboard = () => {
                     });
                 }
 
-                // Sort by time
                 activities.sort((a, b) => b.time - a.time);
                 setTodayActivities(activities);
             }
