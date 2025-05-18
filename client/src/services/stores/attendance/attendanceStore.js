@@ -16,7 +16,7 @@ const useAttendanceStore = create((set, get) => ({
 
   getRecentAttendance: async (data, token) => {
     try {
-      const res = await axiosTools.getData(`${base}/getAll`, data, token);
+      const res = await axiosTools.getData(`${base}/getRecent`, data, token);
 
       set({
         data: res.data,
@@ -139,40 +139,6 @@ const useAttendanceStore = create((set, get) => ({
       const res = await axiosTools.saveData(
         `${base}/clock-in`,
         { staffId },
-        ""
-      );
-
-      set({
-        isSuccess: res.success,
-        isLoading: false,
-        message: res.message,
-        attendanceType: res.data?.attendanceType || "in",
-        staffData: {
-          name: res.data?.staffName,
-          department: res.data?.department,
-          position: res.data?.position,
-        },
-      });
-
-      return res;
-    } catch (error) {
-      set({
-        isLoading: false,
-        message: error.message || "Failed to register attendance",
-        isSuccess: false,
-      });
-
-      return { success: false, message: error.message };
-    }
-  },
-
-  fingerprintAttendance: async (fingerprint) => {
-    set({ isLoading: true, message: "", isSuccess: false });
-
-    try {
-      const res = await axiosTools.saveData(
-        `${base}/clock-in`,
-        { fingerprint },
         ""
       );
 

@@ -8,7 +8,6 @@ const PDFDocument = require("pdfkit");
 const fs = require("fs");
 const path = require("path");
 
-// Calculate payroll for a staff member for a specific period
 const calculatePayroll = async (
   staffId,
   periodStart,

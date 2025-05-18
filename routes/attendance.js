@@ -4,9 +4,6 @@ const router = express.Router();
 const { protect, authorize } = require("../middlewares/auth");
 const {
   clockIn,
-  clockOut,
-  startLunch,
-  endLunch,
   submitReason,
   verifyReason,
   getStaffAttendance,
@@ -17,9 +14,6 @@ const {
 } = require("../controllers/attendanceController");
 
 router.post("/clock-in", clockIn);
-router.post("/clock-out", clockOut);
-router.post("/lunch-start", startLunch);
-router.post("/lunch-end", endLunch);
 router.get("/getPublicAttendance", getPublicAttendance);
 router.post("/submit-reason", protect, submitReason);
 
