@@ -7,18 +7,25 @@ const mongoose = require("mongoose");
 
 exports.getAllAttendance = async (req, res) => {
   try {
-    const { page = 1, limit = 50, startDate, endDate, status, staffId } = req.query;
-    
+    const {
+      page = 1,
+      limit = 50,
+      startDate,
+      endDate,
+      status,
+      staffId,
+    } = req.query;
+
     let query = {};
-    
+
     if (staffId) {
       query.staffId = staffId;
     }
-    
+
     if (status) {
       query.status = status;
     }
-    
+
     if (startDate || endDate) {
       query.date = {};
       if (startDate) {
@@ -32,29 +39,32 @@ exports.getAllAttendance = async (req, res) => {
         query.date.$lte = end;
       }
     }
-    
+
     const attendanceRecords = await Attendance.find(query)
-      .populate('staffId', 'firstname lastname middlename email department position')
+      .populate(
+        "staffId",
+        "firstname lastname middlename email department position"
+      )
       .sort({ date: -1 })
       .skip((page - 1) * limit)
       .limit(parseInt(limit));
-      
+
     const totalRecords = await Attendance.countDocuments(query);
-    
+
     res.status(200).json({
       success: true,
       count: attendanceRecords.length,
       total: totalRecords,
       pages: Math.ceil(totalRecords / limit),
       currentPage: parseInt(page),
-      data: attendanceRecords
+      data: attendanceRecords,
     });
   } catch (err) {
     console.error(err);
     res.status(500).json({
       success: false,
       message: "Error retrieving attendance records",
-      error: err.message
+      error: err.message,
     });
   }
 };
@@ -62,45 +72,45 @@ exports.getAllAttendance = async (req, res) => {
 exports.getRecentAttendance = async (req, res) => {
   try {
     const staffId = req.query.staffId;
-    
+
     if (!staffId || !mongoose.Types.ObjectId.isValid(staffId)) {
       return res.status(400).json({
         success: false,
-        message: "Invalid or missing staff ID"
+        message: "Invalid or missing staff ID",
       });
     }
-    
+
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
     sevenDaysAgo.setHours(0, 0, 0, 0);
-    
+
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
-    
+
     const todayAttendance = await Attendance.findOne({
       staffId: staffId,
-      date: { $gte: today, $lt: tomorrow }
+      date: { $gte: today, $lt: tomorrow },
     });
-    
+
     const recentAttendance = await Attendance.find({
       staffId: staffId,
-      date: { $gte: sevenDaysAgo }
+      date: { $gte: sevenDaysAgo },
     }).sort({ date: -1 });
-    
+
     res.status(200).json({
       success: true,
       count: recentAttendance.length,
       data: recentAttendance,
-      todayAttendance
+      todayAttendance,
     });
   } catch (err) {
     console.error(err);
     res.status(500).json({
       success: false,
       message: "Error retrieving recent attendance",
-      error: err.message
+      error: err.message,
     });
   }
 };
@@ -226,7 +236,7 @@ exports.clockIn = async (req, res) => {
 
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const dayOfWeek = now.getDay(); 
+    const dayOfWeek = now.getDay();
 
     let shiftSchedule = null;
     let isWorkday = false;
@@ -325,7 +335,7 @@ exports.clockIn = async (req, res) => {
         if (now > shiftStart) {
           const lateMinutes = Math.floor((now - shiftStart) / (1000 * 60));
 
-          const gracePeriod = staff.gracePeriod || 15; 
+          const gracePeriod = staff.gracePeriod || 15;
 
           if (lateMinutes > gracePeriod) {
             attendance.status = "late";
@@ -628,58 +638,26 @@ exports.markAbsentees = async (req, res) => {
 
     const now = new Date();
     if (markDate.toDateString() === now.toDateString() && now.getHours() < 18) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "Cannot mark absences for today until after working hours (6 PM)",
-      });
+      if (!req.body.forceMarkToday) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Are you sure you want to mark absences for today before end of workday?",
+          requireConfirmation: true,
+        });
+      }
     }
 
-    const processDate =
-      markDate.toDateString() === now.toDateString()
-        ? markDate 
-        : new Date(markDate); 
-
-    const dayOfWeek = processDate.getDay();
-    const dayNames = [
-      "sunday",
-      "monday",
-      "tuesday",
-      "wednesday",
-      "thursday",
-      "friday",
-      "saturday",
-    ];
-    const dayName = dayNames[dayOfWeek];
-
-    const activeStaff = await Users.find({
-      role: "STAFF",
-      status: "active",
-    })
-      .populate("assignedShift")
-      .select("_id assignedShift customSchedule");
-
-    const workingStaff = activeStaff.filter((staff) => {
-      if (staff.assignedShift) {
-        return staff.assignedShift.isWorkday(dayOfWeek);
-      }
-
-      if (staff.customSchedule && staff.customSchedule[dayName]) {
-        return staff.customSchedule[dayName].isWorkday;
-      }
-
-      return dayOfWeek >= 1 && dayOfWeek <= 5;
-    });
-
-    const staffIds = workingStaff.map((staff) => staff._id);
-
-    const absentRecords = await Attendance.markAbsentees(processDate, staffIds);
+    const schedulingService = require("../services/schedulingService");
+    const absentRecords = await schedulingService.markAbsenteesForDate(
+      markDate
+    );
 
     res.status(200).json({
       success: true,
       message: `Marked ${
         absentRecords.length
-      } staff as absent for ${processDate.toDateString()}`,
+      } staff as absent for ${markDate.toDateString()}`,
       count: absentRecords.length,
       data: absentRecords,
     });

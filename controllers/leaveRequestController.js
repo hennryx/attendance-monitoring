@@ -75,11 +75,9 @@ exports.createLeaveRequest = async (req, res) => {
 
     await leaveRequest.save();
 
-    // Create notification for admin
     const adminUsers = await Users.find({ role: "ADMIN" }).select("_id");
     const staffName = `${staff.firstname} ${staff.lastname}`;
 
-    // Create notifications for all admins
     const notifications = adminUsers.map((admin) => ({
       userId: admin._id,
       type: "leave_request",
@@ -300,6 +298,7 @@ exports.getUnhandledAbsences = async (req, res) => {
     const oneWeekAgo = new Date();
     oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
 
+    // 1. Get all absences that need reasons
     const absences = await Attendance.find({
       staffId: id,
       status: { $in: ["absent", "late", "half-day"] },
@@ -307,6 +306,88 @@ exports.getUnhandledAbsences = async (req, res) => {
       date: { $gte: oneWeekAgo },
     }).sort({ date: -1 });
 
+    if (absences.length === 0) {
+      return res.status(200).json({
+        success: true,
+        count: 0,
+        data: [],
+      });
+    }
+
+    // 2. Get all absence AND late notifications for this user
+    const existingNotifications = await Notification.find({
+      userId: id,
+      type: { $in: ["absence_reason", "late_reason"] },
+    });
+
+    // 3. Create a set of attendance IDs that already have notifications
+    const notifiedAttendanceIds = new Set();
+
+    existingNotifications.forEach((notification) => {
+      try {
+        if (notification.data && notification.data.attendanceId) {
+          // Handle different types of attendanceId storage
+          let attendanceId;
+          if (
+            typeof notification.data.attendanceId === "object" &&
+            notification.data.attendanceId._id
+          ) {
+            attendanceId = notification.data.attendanceId._id.toString();
+          } else {
+            attendanceId = notification.data.attendanceId.toString();
+          }
+          notifiedAttendanceIds.add(attendanceId);
+        }
+      } catch (error) {
+        console.warn(
+          `Error processing notification ${notification._id}:`,
+          error
+        );
+      }
+    });
+
+    // 4. Filter absences that don't have notifications yet
+    const unnotifiedAbsences = absences.filter(
+      (absence) => !notifiedAttendanceIds.has(absence._id.toString())
+    );
+
+    // 5. Create notifications only for unnotified absences
+    if (unnotifiedAbsences.length > 0) {
+      console.log(
+        `Creating ${unnotifiedAbsences.length} new absence/late notifications for user ${id}`
+      );
+
+      const newNotifications = unnotifiedAbsences.map((absence) => {
+        // Determine notification type based on absence status
+        const notificationType =
+          absence.status === "late" ? "late_reason" : "absence_reason";
+
+        return {
+          userId: id,
+          type: notificationType,
+          title: `${
+            absence.status.charAt(0).toUpperCase() +
+            absence.status.slice(1).replace("-", " ")
+          } Reason Required`,
+          message: `You were ${absence.status.replace("-", " ")} on ${new Date(
+            absence.date
+          ).toLocaleDateString()}. Please provide a reason.`,
+          data: {
+            attendanceId: absence._id.toString(),
+            date: absence.date,
+            status: absence.status,
+            staffId: id,
+          },
+          read: false,
+        };
+      });
+
+      if (newNotifications.length > 0) {
+        await Notification.createMultiple(newNotifications);
+      }
+    }
+
+    // 6. Format and return all absences
     const formattedAbsences = absences.map((absence) => ({
       attendanceId: absence._id,
       date: absence.date,
@@ -314,15 +395,14 @@ exports.getUnhandledAbsences = async (req, res) => {
       staffId: id,
     }));
 
-    console.log(formattedAbsences);
-
     res.status(200).json({
       success: true,
       count: formattedAbsences.length,
       data: formattedAbsences,
+      newlyNotified: unnotifiedAbsences.length,
     });
   } catch (err) {
-    console.error(err);
+    console.error("Error retrieving unhandled absences:", err);
     res.status(500).json({
       success: false,
       message: "Error retrieving unhandled absences",

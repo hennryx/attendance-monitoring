@@ -27,7 +27,7 @@ const access = [
     icon: BsPersonAdd,
     element: AddNewUser,
   },
-  
+
   {
     name: "Schedules",
     path: "/schedules",
@@ -49,12 +49,12 @@ const access = [
     element: LeaveRequestsPage,
   },
   {
-    name: "Notifications",
+    name: "",
     path: "/notifications",
     icon: BsBell,
     element: NotificationsPage,
   },
-/* 
+  /* 
   {
     name: "Reports",
     path: "/reports",

@@ -76,7 +76,7 @@ const Header = ({ role }) => {
   }, [isSuccess, message]);
 
   const togglePopover = () => setIsPopoverOpen((prev) => !prev);
-  
+
   return (
     <header
       className={`bg-[#1b1b1b] w-full z-50 transition-transform duration-300 ${
@@ -137,7 +137,7 @@ const Header = ({ role }) => {
 
         <div className="hidden lg:flex items-center space-x-4">
           <NotificationCenter />
-          
+
           <div className="relative">
             <button
               className="hover:text-amber-300 p-2 rounded text-base font-light text-white"
@@ -154,8 +154,8 @@ const Header = ({ role }) => {
                 >
                   Profile
                 </button>
-                
-                {role === 'STAFF' && (
+
+                {role === "STAFF" && (
                   <button
                     onClick={() => {
                       navigate("/leave-history");
@@ -166,7 +166,19 @@ const Header = ({ role }) => {
                     My Leave Requests
                   </button>
                 )}
-                
+
+                {role === "ADMIN" && (
+                  <button
+                    onClick={() => {
+                      navigate("/notifications");
+                      setIsPopoverOpen(false);
+                    }}
+                    className="block w-full text-left px-4 py-2 text-sm text-gray-800 hover:bg-gray-100 rounded"
+                  >
+                    Notifications
+                  </button>
+                )}
+
                 <button
                   onClick={handleLogout}
                   className="block w-full text-left px-4 py-2 text-sm text-gray-800 hover:bg-gray-100 rounded"
@@ -237,8 +249,8 @@ const Header = ({ role }) => {
                       >
                         Profile
                       </button>
-                      
-                      {role === 'STAFF' && (
+
+                      {role === "STAFF" && (
                         <button
                           onClick={() => {
                             navigate("/leave-history");
@@ -250,7 +262,19 @@ const Header = ({ role }) => {
                           My Leave Requests
                         </button>
                       )}
-                      
+
+                      {role === "ADMIN" && (
+                        <button
+                          onClick={() => {
+                            navigate("/notifications");
+                            setIsPopoverOpen(false);
+                          }}
+                          className="block w-full text-left text-sm text-gray-800 hover:underline"
+                        >
+                          Notifications
+                        </button>
+                      )}
+
                       <button
                         onClick={handleLogout}
                         className="block w-full text-left text-sm text-gray-800 hover:underline"

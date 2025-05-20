@@ -6,8 +6,10 @@ import useAuthStore from "./services/stores/authStore";
 import NotFound from "./pages/notFound";
 import HeroPage from "./pages/home";
 import Views from "./pages/views";
+import useNotificationStore from "./services/stores/notificationStore";
 
 function App() {
+  const { getUserNotifications } = useNotificationStore();
   const { auth, token, validateToken } = useAuthStore();
 
   useEffect(() => {
@@ -15,6 +17,12 @@ function App() {
       validateToken();
     }
   }, [auth?._id, token]);
+
+  useEffect(() => {
+    if (token) {
+      getUserNotifications(token);
+    }
+  }, [token, getUserNotifications]);
 
   const heroPaths = ["/", "/about-us", "/attendance", "/services"];
 
