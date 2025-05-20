@@ -397,7 +397,7 @@ const Modal = ({
                                             </div>
 
                                             {/* Advanced Settings Button */}
-                                            <div className="mt-4 border-t border-gray-200 pt-4">
+                                            {/* <div className="mt-4 border-t border-gray-200 pt-4">
                                                 <button
                                                     type="button"
                                                     className="flex items-center text-blue-600 hover:text-blue-800"
@@ -408,7 +408,7 @@ const Modal = ({
                                                         ? "Hide Advanced Settings"
                                                         : "Show Advanced Settings (Payroll & Schedule)"}
                                                 </button>
-                                            </div>
+                                            </div> */}
 
                                             {/* Advanced Settings */}
                                             {showAdvanced && (

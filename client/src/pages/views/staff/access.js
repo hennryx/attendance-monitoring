@@ -1,8 +1,9 @@
 import DashBoard from "./dashboard";
 
-import { BsGrid1X2, BsCalendarCheck, BsBell } from "react-icons/bs";
+import { BsGrid1X2, BsCalendarCheck, BsBell, BsFileEarmarkText } from "react-icons/bs";
 import LeaveHistoryPage from "./leaveHistory"
 import NotificationsPage from "../../Notifications";
+import StaffReportsPage from "./reports";
 
 const access = [
   {
@@ -24,14 +25,14 @@ const access = [
     icon: BsBell,
     element: NotificationsPage,
   }
-  /* ,
+  ,
   
   {
     name: "Reports",
     path: "/reports",
     icon: BsFileEarmarkText,
-    element: ReportsPage,
-  } */
+    element: StaffReportsPage,
+  }
   // {
   //   name: "My Payroll",
   //   path: "/payroll",

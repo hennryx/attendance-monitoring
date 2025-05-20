@@ -8,10 +8,12 @@ import {
   BsCashStack,
   BsCalendarCheck,
   BsBell,
+  BsFileEarmarkText,
 } from "react-icons/bs";
 import StaffScheduleManagement from "./staffSchedule";
 import ShiftManagement from "./shifts";
 import NotificationsPage from "../../Notifications";
+import ReportsPage from "./reports";
 
 const access = [
   {
@@ -54,13 +56,13 @@ const access = [
     icon: BsBell,
     element: NotificationsPage,
   },
-  /* 
+  
   {
     name: "Reports",
     path: "/reports",
     icon: BsFileEarmarkText,
     element: ReportsPage,
-  }, */
+  },
 ];
 
 export default access;
