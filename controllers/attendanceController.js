@@ -5,6 +5,106 @@ const FingerPrint = require("../models/FingerPrint");
 const fingerprintService = require("../service/fingerprintService");
 const mongoose = require("mongoose");
 
+exports.getAllAttendance = async (req, res) => {
+  try {
+    const { page = 1, limit = 50, startDate, endDate, status, staffId } = req.query;
+    
+    let query = {};
+    
+    if (staffId) {
+      query.staffId = staffId;
+    }
+    
+    if (status) {
+      query.status = status;
+    }
+    
+    if (startDate || endDate) {
+      query.date = {};
+      if (startDate) {
+        const start = new Date(startDate);
+        start.setHours(0, 0, 0, 0);
+        query.date.$gte = start;
+      }
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        query.date.$lte = end;
+      }
+    }
+    
+    const attendanceRecords = await Attendance.find(query)
+      .populate('staffId', 'firstname lastname middlename email department position')
+      .sort({ date: -1 })
+      .skip((page - 1) * limit)
+      .limit(parseInt(limit));
+      
+    const totalRecords = await Attendance.countDocuments(query);
+    
+    res.status(200).json({
+      success: true,
+      count: attendanceRecords.length,
+      total: totalRecords,
+      pages: Math.ceil(totalRecords / limit),
+      currentPage: parseInt(page),
+      data: attendanceRecords
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      success: false,
+      message: "Error retrieving attendance records",
+      error: err.message
+    });
+  }
+};
+
+exports.getRecentAttendance = async (req, res) => {
+  try {
+    const staffId = req.query.staffId;
+    
+    if (!staffId || !mongoose.Types.ObjectId.isValid(staffId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid or missing staff ID"
+      });
+    }
+    
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    sevenDaysAgo.setHours(0, 0, 0, 0);
+    
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    
+    const todayAttendance = await Attendance.findOne({
+      staffId: staffId,
+      date: { $gte: today, $lt: tomorrow }
+    });
+    
+    const recentAttendance = await Attendance.find({
+      staffId: staffId,
+      date: { $gte: sevenDaysAgo }
+    }).sort({ date: -1 });
+    
+    res.status(200).json({
+      success: true,
+      count: recentAttendance.length,
+      data: recentAttendance,
+      todayAttendance
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      success: false,
+      message: "Error retrieving recent attendance",
+      error: err.message
+    });
+  }
+};
+
 exports.getPublicAttendance = async (req, res) => {
   try {
     const today = new Date();
@@ -75,12 +175,10 @@ exports.clockIn = async (req, res) => {
   try {
     const { fingerprint, staffId } = req.body;
 
-    // If fingerprint is provided, identify staff
     let identifiedStaffId = staffId;
 
     if (fingerprint && !staffId) {
       try {
-        // Match fingerprint to identify staff using the improved matching algorithm
         const matchResult = await fingerprintService.matchFingerprint({
           fingerPrint: fingerprint,
         });
@@ -117,7 +215,6 @@ exports.clockIn = async (req, res) => {
       });
     }
 
-    // Find the staff to get their assigned shift
     const staff = await Users.findById(identifiedStaffId);
 
     if (!staff) {
@@ -129,13 +226,11 @@ exports.clockIn = async (req, res) => {
 
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday, etc.
+    const dayOfWeek = now.getDay(); 
 
-    // Get the staff's shift (either assigned or custom)
     let shiftSchedule = null;
     let isWorkday = false;
 
-    // Check if staff has an assigned shift
     if (staff.assignedShift) {
       const shift = await Shift.findById(staff.assignedShift);
       if (shift) {
@@ -145,7 +240,6 @@ exports.clockIn = async (req, res) => {
         }
       }
     }
-    // If no assigned shift or not a workday, check custom schedule
     if (!shiftSchedule && staff.customSchedule) {
       const dayNames = [
         "sunday",
@@ -172,7 +266,6 @@ exports.clockIn = async (req, res) => {
       }
     }
 
-    // If not a workday, inform user
     if (!isWorkday) {
       return res.status(400).json({
         success: false,
@@ -180,7 +273,6 @@ exports.clockIn = async (req, res) => {
       });
     }
 
-    // Check if an attendance record already exists for today
     let attendance = await Attendance.findOne({
       staffId: identifiedStaffId,
       date: {
@@ -189,37 +281,29 @@ exports.clockIn = async (req, res) => {
       },
     });
 
-    // AUTO DETECTION LOGIC
-    let attendanceType = "in"; // Default is clock-in
+    let attendanceType = "in";
     let message = "Clock-in recorded successfully";
 
     if (attendance) {
-      // Record exists - auto-detect what type of action this is
       if (!attendance.timeIn) {
-        // If no timeIn recorded, this is a clock-in
         attendanceType = "in";
         message = "Clock-in recorded successfully";
       } else if (attendance.timeIn && !attendance.lunchStart) {
-        // If timeIn exists but no lunchStart, this is starting lunch
         attendanceType = "lunch-start";
         message = "Lunch break started successfully";
       } else if (attendance.lunchStart && !attendance.lunchEnd) {
-        // If lunchStart exists but no lunchEnd, this is ending lunch
         attendanceType = "lunch-end";
         message = "Lunch break ended successfully";
       } else if (attendance.timeIn && !attendance.timeOut) {
-        // If timeIn exists but no timeOut, this is a clock-out
         attendanceType = "out";
         message = "Clock-out recorded successfully";
       } else {
-        // All records exist for today - return error
         return res.status(400).json({
           success: false,
           message: "All attendance records already completed for today",
         });
       }
     } else {
-      // No attendance record exists - create new one for clock-in
       attendance = new Attendance({
         staffId: identifiedStaffId,
         date: today,
@@ -227,27 +311,21 @@ exports.clockIn = async (req, res) => {
       });
     }
 
-    // Update attendance record based on detected type
     if (attendanceType === "in") {
       attendance.timeIn = now;
 
-      // Calculate late minutes and update status if necessary
       if (shiftSchedule) {
-        // Parse shift start time
         const [startHour, startMinute] = shiftSchedule.startTime
           .split(":")
           .map(Number);
 
-        // Create shift start time for today
         const shiftStart = new Date(today);
         shiftStart.setHours(startHour, startMinute, 0, 0.0);
 
-        // Calculate late minutes
         if (now > shiftStart) {
           const lateMinutes = Math.floor((now - shiftStart) / (1000 * 60));
 
-          // Check if within grace period
-          const gracePeriod = staff.gracePeriod || 15; // Default 15 minutes
+          const gracePeriod = staff.gracePeriod || 15; 
 
           if (lateMinutes > gracePeriod) {
             attendance.status = "late";
@@ -262,30 +340,24 @@ exports.clockIn = async (req, res) => {
     } else if (attendanceType === "out") {
       attendance.timeOut = now;
 
-      // Calculate overtime if shift is assigned
       if (shiftSchedule) {
-        // Parse shift end time
         const [endHour, endMinute] = shiftSchedule.endTime
           .split(":")
           .map(Number);
 
-        // Create shift end time for today
         const shiftEnd = new Date(today);
         shiftEnd.setHours(endHour, endMinute, 0, 0);
 
-        // Calculate overtime (if clock-out time is after shift end time)
         if (now > shiftEnd) {
           const overtimeMinutes = Math.floor((now - shiftEnd) / (1000 * 60));
           attendance.overtime = overtimeMinutes;
         }
 
-        // Calculate total hours worked including lunch break adjustment
         if (attendance.timeIn) {
           let totalMinutes = Math.floor(
             (now - attendance.timeIn) / (1000 * 60)
           );
 
-          // Subtract lunch break if taken
           if (attendance.lunchStart && attendance.lunchEnd) {
             const lunchMinutes = Math.floor(
               (attendance.lunchEnd - attendance.lunchStart) / (1000 * 60)
@@ -321,367 +393,6 @@ exports.clockIn = async (req, res) => {
   }
 };
 
-exports.clockOut = async (req, res) => {
-  try {
-    const { fingerprint, staffId } = req.body;
-
-    // If fingerprint is provided, identify staff
-    let identifiedStaffId = staffId;
-
-    if (fingerprint && !staffId) {
-      try {
-        // Match fingerprint to identify staff
-        const matchResult = await fingerprintService.matchFingerprint({
-          fingerPrint: fingerprint,
-        });
-
-        if (!matchResult.matched) {
-          return res.status(401).json({
-            success: false,
-            message:
-              "No matching fingerprint found. Please register your fingerprint first.",
-          });
-        }
-
-        identifiedStaffId = matchResult.staffId;
-      } catch (error) {
-        return res.status(500).json({
-          success: false,
-          message: "Error processing fingerprint",
-          error: error.message,
-        });
-      }
-    }
-
-    if (!identifiedStaffId) {
-      return res.status(400).json({
-        success: false,
-        message: "Staff identification failed",
-      });
-    }
-
-    if (!mongoose.Types.ObjectId.isValid(identifiedStaffId)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid staff ID",
-      });
-    }
-
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday, etc.
-
-    // Find today's attendance record
-    const attendance = await Attendance.findOne({
-      staffId: identifiedStaffId,
-      date: {
-        $gte: today,
-        $lt: new Date(today.getTime() + 24 * 60 * 60 * 1000),
-      },
-    });
-
-    if (!attendance) {
-      return res.status(404).json({
-        success: false,
-        message: "No clock-in record found for today",
-      });
-    }
-
-    if (!attendance.timeIn) {
-      return res.status(400).json({
-        success: false,
-        message: "Cannot clock-out without clocking in first",
-      });
-    }
-
-    if (attendance.timeOut) {
-      return res.status(400).json({
-        success: false,
-        message: "Clock-out already recorded for today",
-      });
-    }
-
-    // Find the staff to get their assigned shift
-    const staff = await Users.findById(identifiedStaffId);
-
-    if (!staff) {
-      return res.status(404).json({
-        success: false,
-        message: "Staff not found",
-      });
-    }
-
-    // Update attendance record with clock-out time
-    attendance.timeOut = now;
-
-    // Get the staff's shift (either assigned or custom)
-    let shiftSchedule = null;
-    let shift = null;
-
-    // Check if staff has an assigned shift
-    if (staff.assignedShift) {
-      shift = await Shift.findById(staff.assignedShift);
-      if (shift) {
-        if (shift.isWorkday(dayOfWeek)) {
-          shiftSchedule = shift.getScheduleForDay(dayOfWeek);
-        }
-      }
-    }
-
-    // Calculate overtime if shift is assigned
-    if (shiftSchedule) {
-      // Parse shift end time
-      const [endHour, endMinute] = shiftSchedule.endTime.split(":").map(Number);
-
-      // Create shift end time for today
-      const shiftEnd = new Date(today);
-      shiftEnd.setHours(endHour, endMinute, 0, 0);
-
-      // Calculate overtime minutes
-      if (now > shiftEnd) {
-        const overtimeMinutes = Math.floor((now - shiftEnd) / (1000 * 60));
-        attendance.overtime = overtimeMinutes;
-      }
-
-      // Calculate total hours worked and determine if half-day
-      const timeIn = new Date(attendance.timeIn);
-      const timeOut = now;
-
-      // Account for lunch break
-      let lunchBreakDuration = 0;
-      if (attendance.lunchStart && attendance.lunchEnd) {
-        lunchBreakDuration =
-          (new Date(attendance.lunchEnd) - new Date(attendance.lunchStart)) /
-          (1000 * 60 * 60);
-      } else if (shiftSchedule.lunchDuration) {
-        // If lunch break not recorded but exists in schedule, use default
-        lunchBreakDuration = shiftSchedule.lunchDuration / 60;
-      }
-
-      // Calculate total hours worked
-      const totalHours =
-        (timeOut - timeIn) / (1000 * 60 * 60) - lunchBreakDuration;
-      attendance.totalHoursWorked = Math.max(0, totalHours);
-
-      // Check if this qualifies as a half-day
-      if (shift && totalHours > 0 && totalHours < shift.halfDayThreshold) {
-        attendance.status = "half-day";
-      }
-    }
-
-    await attendance.save();
-
-    res.status(200).json({
-      success: true,
-      message: "Clock-out recorded successfully",
-      data: attendance,
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({
-      success: false,
-      message: "Error recording clock-out",
-      error: err.message,
-    });
-  }
-};
-
-exports.startLunch = async (req, res) => {
-  try {
-    const { fingerprint, staffId } = req.body;
-
-    // If fingerprint is provided, identify staff
-    let identifiedStaffId = staffId;
-
-    if (fingerprint && !staffId) {
-      try {
-        // Match fingerprint to identify staff
-        const matchResult = await fingerprintService.matchFingerprint({
-          fingerPrint: fingerprint,
-        });
-
-        if (!matchResult.matched) {
-          return res.status(401).json({
-            success: false,
-            message:
-              "No matching fingerprint found. Please register your fingerprint first.",
-          });
-        }
-
-        identifiedStaffId = matchResult.staffId;
-      } catch (error) {
-        return res.status(500).json({
-          success: false,
-          message: "Error processing fingerprint",
-          error: error.message,
-        });
-      }
-    }
-
-    if (!identifiedStaffId) {
-      return res.status(400).json({
-        success: false,
-        message: "Staff identification failed",
-      });
-    }
-
-    if (!mongoose.Types.ObjectId.isValid(identifiedStaffId)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid staff ID",
-      });
-    }
-
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-
-    // Find today's attendance record
-    const attendance = await Attendance.findOne({
-      staffId: identifiedStaffId,
-      date: {
-        $gte: today,
-        $lt: new Date(today.getTime() + 24 * 60 * 60 * 1000),
-      },
-    });
-
-    if (!attendance) {
-      return res.status(404).json({
-        success: false,
-        message: "No clock-in record found for today",
-      });
-    }
-
-    if (!attendance.timeIn) {
-      return res.status(400).json({
-        success: false,
-        message: "Cannot start lunch without clocking in first",
-      });
-    }
-
-    if (attendance.lunchStart) {
-      return res.status(400).json({
-        success: false,
-        message: "Lunch start already recorded for today",
-      });
-    }
-
-    // Update attendance record with lunch start time
-    attendance.lunchStart = now;
-    await attendance.save();
-
-    res.status(200).json({
-      success: true,
-      message: "Lunch start recorded successfully",
-      data: attendance,
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({
-      success: false,
-      message: "Error recording lunch start",
-      error: err.message,
-    });
-  }
-};
-
-exports.endLunch = async (req, res) => {
-  try {
-    const { fingerprint, staffId } = req.body;
-
-    // If fingerprint is provided, identify staff
-    let identifiedStaffId = staffId;
-
-    if (fingerprint && !staffId) {
-      try {
-        // Match fingerprint to identify staff
-        const matchResult = await fingerprintService.matchFingerprint({
-          fingerPrint: fingerprint,
-        });
-
-        if (!matchResult.matched) {
-          return res.status(401).json({
-            success: false,
-            message:
-              "No matching fingerprint found. Please register your fingerprint first.",
-          });
-        }
-
-        identifiedStaffId = matchResult.staffId;
-      } catch (error) {
-        return res.status(500).json({
-          success: false,
-          message: "Error processing fingerprint",
-          error: error.message,
-        });
-      }
-    }
-
-    if (!identifiedStaffId) {
-      return res.status(400).json({
-        success: false,
-        message: "Staff identification failed",
-      });
-    }
-
-    if (!mongoose.Types.ObjectId.isValid(identifiedStaffId)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid staff ID",
-      });
-    }
-
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-
-    // Find today's attendance record
-    const attendance = await Attendance.findOne({
-      staffId: identifiedStaffId,
-      date: {
-        $gte: today,
-        $lt: new Date(today.getTime() + 24 * 60 * 60 * 1000),
-      },
-    });
-
-    if (!attendance) {
-      return res.status(404).json({
-        success: false,
-        message: "No clock-in record found for today",
-      });
-    }
-
-    if (!attendance.lunchStart) {
-      return res.status(400).json({
-        success: false,
-        message: "Cannot end lunch without starting lunch first",
-      });
-    }
-
-    if (attendance.lunchEnd) {
-      return res.status(400).json({
-        success: false,
-        message: "Lunch end already recorded for today",
-      });
-    }
-
-    // Update attendance record with lunch end time
-    attendance.lunchEnd = now;
-    await attendance.save();
-
-    res.status(200).json({
-      success: true,
-      message: "Lunch end recorded successfully",
-      data: attendance,
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({
-      success: false,
-      message: "Error recording lunch end",
-      error: err.message,
-    });
-  }
-};
-
 exports.submitReason = async (req, res) => {
   try {
     const { attendanceId, reason } = req.body;
@@ -700,7 +411,6 @@ exports.submitReason = async (req, res) => {
       });
     }
 
-    // Find the attendance record
     const attendance = await Attendance.findById(attendanceId);
 
     if (!attendance) {
@@ -710,7 +420,6 @@ exports.submitReason = async (req, res) => {
       });
     }
 
-    // Check if attendance belongs to the requesting user
     if (
       req.user &&
       req.user.role !== "ADMIN" &&
@@ -722,7 +431,6 @@ exports.submitReason = async (req, res) => {
       });
     }
 
-    // Update the reason
     attendance.reason = reason;
     await attendance.save();
 
@@ -752,7 +460,6 @@ exports.verifyReason = async (req, res) => {
       });
     }
 
-    // Find the attendance record
     const attendance = await Attendance.findById(attendanceId);
 
     if (!attendance) {
@@ -762,7 +469,6 @@ exports.verifyReason = async (req, res) => {
       });
     }
 
-    // Update the verification status
     attendance.reasonVerified = verified;
     attendance.verifiedBy = req.user._id;
 
@@ -798,7 +504,6 @@ exports.getStaffAttendance = async (req, res) => {
       });
     }
 
-    // Parse dates
     const start = startDate
       ? new Date(startDate)
       : new Date(new Date().setDate(new Date().getDate() - 30));
@@ -807,7 +512,6 @@ exports.getStaffAttendance = async (req, res) => {
     const end = endDate ? new Date(endDate) : new Date();
     end.setHours(23, 59, 59, 999);
 
-    // Find attendance records
     const attendanceRecords = await Attendance.find({
       staffId,
       date: { $gte: start, $lte: end },
@@ -919,11 +623,9 @@ exports.getTodayAttendance = async (req, res) => {
 
 exports.markAbsentees = async (req, res) => {
   try {
-    // Default to yesterday if no date provided
     let markDate = req.body.date ? new Date(req.body.date) : new Date();
     markDate.setHours(0, 0, 0, 0);
 
-    // If marking for today, ensure it's after working hours (after 6 PM)
     const now = new Date();
     if (markDate.toDateString() === now.toDateString() && now.getHours() < 18) {
       return res.status(400).json({
@@ -933,13 +635,12 @@ exports.markAbsentees = async (req, res) => {
       });
     }
 
-    // Process date to mark
     const processDate =
       markDate.toDateString() === now.toDateString()
-        ? markDate // Today, after 6 PM
-        : new Date(markDate); // Past date
+        ? markDate 
+        : new Date(markDate); 
 
-    const dayOfWeek = processDate.getDay(); // 0 = Sunday, 1 = Monday, etc.
+    const dayOfWeek = processDate.getDay();
     const dayNames = [
       "sunday",
       "monday",
@@ -951,7 +652,6 @@ exports.markAbsentees = async (req, res) => {
     ];
     const dayName = dayNames[dayOfWeek];
 
-    // Get all active staff
     const activeStaff = await Users.find({
       role: "STAFF",
       status: "active",
@@ -959,25 +659,20 @@ exports.markAbsentees = async (req, res) => {
       .populate("assignedShift")
       .select("_id assignedShift customSchedule");
 
-    // Filter staff who should be working on this day
     const workingStaff = activeStaff.filter((staff) => {
-      // Check assigned shift first
       if (staff.assignedShift) {
         return staff.assignedShift.isWorkday(dayOfWeek);
       }
 
-      // If no assigned shift, check custom schedule
       if (staff.customSchedule && staff.customSchedule[dayName]) {
         return staff.customSchedule[dayName].isWorkday;
       }
 
-      // Default to Mon-Fri if no schedule defined
       return dayOfWeek >= 1 && dayOfWeek <= 5;
     });
 
     const staffIds = workingStaff.map((staff) => staff._id);
 
-    // Mark absent for staff who didn't clock in
     const absentRecords = await Attendance.markAbsentees(processDate, staffIds);
 
     res.status(200).json({
@@ -999,8 +694,6 @@ exports.markAbsentees = async (req, res) => {
 };
 
 exports.scheduleAbsenteeMarking = () => {
-  console.log("Setting up scheduled task for automatic absence marking");
-
   const scheduledTime = "0 20 * * *";
 };
 
