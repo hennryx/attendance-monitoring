@@ -181,6 +181,37 @@ const useLeaveRequestStore = create((set, get) => ({
         }
     },
 
+    getLeaveStatistics: async (params, token) => {
+        set({ isLoading: true });
+        try {
+            const response = await axiosTools.getData(
+                `${base}/statistics`,
+                params,
+                token
+            );
+
+            if (response.success) {
+                set({
+                    leaveStats: response.data,
+                    isLoading: false,
+                });
+                return response.data;
+            } else {
+                set({
+                    isLoading: false,
+                    message: response.message || "Failed to fetch leave statistics",
+                });
+                return null;
+            }
+        } catch (error) {
+            set({
+                isLoading: false,
+                message: error.message || "Error fetching leave statistics",
+            });
+            return null;
+        }
+    },
+
     reset: () => {
         set({
             message: "",
