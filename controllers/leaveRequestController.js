@@ -50,10 +50,10 @@ exports.createLeaveRequest = async (req, res) => {
       staffId,
       status: { $ne: "rejected" },
       $or: [
-        { 
-          startDate: { $lte: end }, 
-          endDate: { $gte: start } 
-        }
+        {
+          startDate: { $lte: end },
+          endDate: { $gte: start },
+        },
       ],
     });
 
@@ -80,20 +80,22 @@ exports.createLeaveRequest = async (req, res) => {
     const staffName = `${staff.firstname} ${staff.lastname}`;
 
     // Create notifications for all admins
-    const notifications = adminUsers.map(admin => ({
+    const notifications = adminUsers.map((admin) => ({
       userId: admin._id,
       type: "leave_request",
       title: "New Leave Request",
-      message: `${staffName} has requested leave from ${new Date(startDate).toLocaleDateString()} to ${new Date(endDate).toLocaleDateString()}.`,
-      data: { 
+      message: `${staffName} has requested leave from ${new Date(
+        startDate
+      ).toLocaleDateString()} to ${new Date(endDate).toLocaleDateString()}.`,
+      data: {
         leaveRequestId: leaveRequest._id,
         staffId,
         staffName,
         startDate,
         endDate,
-        leaveType
+        leaveType,
       },
-      read: false
+      read: false,
     }));
 
     if (notifications.length > 0) {
@@ -121,7 +123,7 @@ exports.getAllLeaveRequests = async (req, res) => {
       .populate("staffId", "firstname lastname email department position")
       .sort({ createdAt: -1 });
 
-    const formattedRequests = leaveRequests.map(request => {
+    const formattedRequests = leaveRequests.map((request) => {
       const staff = request.staffId;
       return {
         _id: request._id,
@@ -137,7 +139,7 @@ exports.getAllLeaveRequests = async (req, res) => {
         status: request.status,
         rejectionReason: request.rejectionReason,
         createdAt: request.createdAt,
-        updatedAt: request.updatedAt
+        updatedAt: request.updatedAt,
       };
     });
 
@@ -168,8 +170,9 @@ exports.getUserLeaveRequests = async (req, res) => {
       });
     }
 
-    const leaveRequests = await LeaveRequest.find({ staffId: id })
-      .sort({ createdAt: -1 });
+    const leaveRequests = await LeaveRequest.find({ staffId: id }).sort({
+      createdAt: -1,
+    });
 
     res.status(200).json({
       success: true,
@@ -186,7 +189,6 @@ exports.getUserLeaveRequests = async (req, res) => {
   }
 };
 
-// Update leave request status (approve/reject)
 exports.updateLeaveRequestStatus = async (req, res) => {
   try {
     const { id } = req.params;
@@ -229,10 +231,10 @@ exports.updateLeaveRequestStatus = async (req, res) => {
       });
     }
 
-    // Update the request
     leaveRequest.status = status;
     if (status === "rejected") {
       leaveRequest.rejectionReason = rejectionReason;
+      leaveRequest.rejectedBy = req.user._id;
     } else {
       leaveRequest.approvedBy = req.user._id;
       leaveRequest.approvedAt = new Date();
@@ -240,22 +242,32 @@ exports.updateLeaveRequestStatus = async (req, res) => {
 
     await leaveRequest.save();
 
-    // Create notification for staff
     const staff = await Users.findById(leaveRequest.staffId);
     if (staff) {
       await Notification.create({
         userId: staff._id,
         type: "leave_status",
-        title: `Leave Request ${status === "approved" ? "Approved" : "Rejected"}`,
-        message: status === "approved" 
-          ? `Your leave request from ${new Date(leaveRequest.startDate).toLocaleDateString()} to ${new Date(leaveRequest.endDate).toLocaleDateString()} has been approved.`
-          : `Your leave request from ${new Date(leaveRequest.startDate).toLocaleDateString()} to ${new Date(leaveRequest.endDate).toLocaleDateString()} has been rejected. Reason: ${rejectionReason}`,
-        data: { 
+        title: `Leave Request ${
+          status === "approved" ? "Approved" : "Rejected"
+        }`,
+        message:
+          status === "approved"
+            ? `Your leave request from ${new Date(
+                leaveRequest.startDate
+              ).toLocaleDateString()} to ${new Date(
+                leaveRequest.endDate
+              ).toLocaleDateString()} has been approved.`
+            : `Your leave request from ${new Date(
+                leaveRequest.startDate
+              ).toLocaleDateString()} to ${new Date(
+                leaveRequest.endDate
+              ).toLocaleDateString()} has been rejected. Reason: ${rejectionReason}`,
+        data: {
           leaveRequestId: leaveRequest._id,
           status,
-          rejectionReason: status === "rejected" ? rejectionReason : null
+          rejectionReason: status === "rejected" ? rejectionReason : null,
         },
-        read: false
+        read: false,
       });
     }
 
@@ -292,18 +304,18 @@ exports.getUnhandledAbsences = async (req, res) => {
       staffId: id,
       status: { $in: ["absent", "late", "half-day"] },
       reason: { $in: [null, ""] },
-      date: { $gte: oneWeekAgo }
+      date: { $gte: oneWeekAgo },
     }).sort({ date: -1 });
 
-    const formattedAbsences = absences.map(absence => ({
+    const formattedAbsences = absences.map((absence) => ({
       attendanceId: absence._id,
       date: absence.date,
       status: absence.status,
-      staffId: id
+      staffId: id,
     }));
 
     console.log(formattedAbsences);
-    
+
     res.status(200).json({
       success: true,
       count: formattedAbsences.length,
@@ -323,85 +335,91 @@ exports.getUnhandledAbsences = async (req, res) => {
 exports.getLeaveStatistics = async (req, res) => {
   try {
     const { startDate, endDate, department } = req.query;
-    
+
     // Default to last 30 days if no dates provided
-    const start = startDate ? new Date(startDate) : new Date(new Date().setDate(new Date().getDate() - 30));
+    const start = startDate
+      ? new Date(startDate)
+      : new Date(new Date().setDate(new Date().getDate() - 30));
     const end = endDate ? new Date(endDate) : new Date();
     start.setHours(0, 0, 0, 0);
     end.setHours(23, 59, 59, 999);
-    
+
     // Build query
     let query = {
       startDate: { $lte: end },
-      endDate: { $gte: start }
+      endDate: { $gte: start },
     };
-    
+
     // Add department filter if provided
     if (department) {
       // Find all staff in the department
-      const staffInDept = await Users.find({ department }).select('_id');
-      const staffIds = staffInDept.map(staff => staff._id);
+      const staffInDept = await Users.find({ department }).select("_id");
+      const staffIds = staffInDept.map((staff) => staff._id);
       query.staffId = { $in: staffIds };
     }
-    
+
     // Get all leave requests matching the query
     const leaveRequests = await LeaveRequest.find(query)
-      .populate('staffId', 'firstname lastname department position')
+      .populate("staffId", "firstname lastname department position")
       .lean();
-      
+
     // Calculate statistics
-    
+
     // 1. Count by status
     const statusCounts = {
       pending: 0,
       approved: 0,
-      rejected: 0
+      rejected: 0,
     };
-    
+
     // 2. Count by leave type
     const typeCounts = {
       vacation: 0,
       sick: 0,
       personal: 0,
       bereavement: 0,
-      other: 0
+      other: 0,
     };
-    
+
     // 3. Count by department
     const departmentCounts = {};
-    
+
     // Process each request
-    leaveRequests.forEach(request => {
+    leaveRequests.forEach((request) => {
       // Update status counts
       statusCounts[request.status]++;
-      
+
       // Update type counts
       typeCounts[request.leaveType]++;
-      
+
       // Update department counts
-      const dept = request.staffId?.department || 'Unknown';
+      const dept = request.staffId?.department || "Unknown";
       departmentCounts[dept] = (departmentCounts[dept] || 0) + 1;
     });
-    
+
     // Calculate average leave duration
     let totalDays = 0;
-    leaveRequests.forEach(request => {
+    leaveRequests.forEach((request) => {
       const startDate = new Date(request.startDate);
       const endDate = new Date(request.endDate);
       const days = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1;
       totalDays += days;
     });
-    
-    const avgDuration = leaveRequests.length > 0 ? totalDays / leaveRequests.length : 0;
-    
+
+    const avgDuration =
+      leaveRequests.length > 0 ? totalDays / leaveRequests.length : 0;
+
     // Prepare monthly distribution
     const monthlyData = {};
-    
-    leaveRequests.forEach(request => {
-      const startMonth = new Date(request.startDate).toLocaleString('default', { month: 'long', year: 'numeric' });
+
+    leaveRequests.forEach((request) => {
+      const startMonth = new Date(request.startDate).toLocaleString("default", {
+        month: "long",
+        year: "numeric",
+      });
       monthlyData[startMonth] = (monthlyData[startMonth] || 0) + 1;
     });
-    
+
     res.status(200).json({
       success: true,
       data: {
@@ -410,10 +428,11 @@ exports.getLeaveStatistics = async (req, res) => {
         typeCounts,
         departmentCounts,
         avgDuration,
-        monthlyDistribution: Object.entries(monthlyData).map(([month, count]) => ({ month, count }))
-      }
+        monthlyDistribution: Object.entries(monthlyData).map(
+          ([month, count]) => ({ month, count })
+        ),
+      },
     });
-    
   } catch (err) {
     console.error(err);
     res.status(500).json({

@@ -39,6 +39,12 @@ const LeaveRequestSchema = new mongoose.Schema({
     default: null,
   },
 
+  rejectedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Users",
+    default: null,
+  },
+
   approvedBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Users",
@@ -58,11 +64,11 @@ const LeaveRequestSchema = new mongoose.Schema({
   updatedAt: {
     type: Date,
     default: Date.now,
-  }
+  },
 });
 
 // Pre-save hook to update the updatedAt field
-LeaveRequestSchema.pre("save", function(next) {
+LeaveRequestSchema.pre("save", function (next) {
   this.updatedAt = new Date();
   next();
 });
