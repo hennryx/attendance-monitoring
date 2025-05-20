@@ -9,7 +9,7 @@ const Header = ({ handleToggle }) => {
   const navigation = [
     { name: "Home", href: "/" },
     { name: "About us", href: "/about-us" },
-    { name: "Service", href: "/services" },
+    /* { name: "Service", href: "/services" }, */
   ];
 
   return (
