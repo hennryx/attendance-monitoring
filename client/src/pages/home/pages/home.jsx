@@ -23,7 +23,7 @@ const Home = () => {
       <div className="max-w-4xl pt-28 sm:pt-36 lg:pt-40 relative z-10">
         <h1 className="text-4xl sm:text-6xl font-bold text-white leading-tight text-shadow-base-300">
           MANAGE EMPLOYEE ATTENDANCE WITH EASE USING OUR
-          <span className="text-[#FDBE02]"> ATTENDANCE MONITORING SYSTEM</span>
+          <span className="text-[#FDBE02]"> ATTENDANCE MANAGEMENT SYSTEM</span>
         </h1>
         <p className="mt-6 w-full sm:w-2/3 text-base sm:text-lg text-white font-medium leading-relaxed">
           Out System is designed to be user-freindly and intuitive, so you can
