@@ -595,13 +595,10 @@ const Dashboard = () => {
       </div>
 
       {showLeaveForm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-lg max-w-lg w-full">
-            <div className="p-4">
-              <LeaveRequestForm onClose={() => setShowLeaveForm(false)} />
-            </div>
-          </div>
-        </div>
+        <LeaveRequestForm
+          onClose={() => setShowLeaveForm(false)}
+          isOpen={showLeaveForm}
+        />
       )}
 
       {/* {showAbsenceDialog && absenceData && (
