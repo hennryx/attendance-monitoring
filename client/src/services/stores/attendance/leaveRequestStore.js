@@ -212,6 +212,36 @@ const useLeaveRequestStore = create((set, get) => ({
         }
     },
 
+    getStaffSchedule: async (staffId, token) => {
+        set({ isLoading: true });
+        try {
+            const response = await axiosTools.getData(
+                `${base}/staff-schedule/${staffId}`,
+                "",
+                token
+            );
+    
+            if (response.success) {
+                set({
+                    isLoading: false,
+                });
+                return response.data;
+            } else {
+                set({
+                    isLoading: false,
+                    message: response.message || "Failed to fetch staff schedule",
+                });
+                return null;
+            }
+        } catch (error) {
+            set({
+                isLoading: false,
+                message: error.message || "Error fetching staff schedule",
+            });
+            return null;
+        }
+    },    
+
     reset: () => {
         set({
             message: "",

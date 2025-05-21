@@ -18,10 +18,16 @@ const LeaveRequestForm = ({ onClose, isOpen }) => {
         leaveType: "vacation",
         reason: "",
     });
-    const { createLeaveRequest, isLoading, isSuccess, message, reset } =
+    const { createLeaveRequest, getStaffSchedule, isLoading, isSuccess, message, reset } =
         useLeaveRequestStore();
     const { token, auth } = useAuthStore();
     const { addLeaveRequestNotification } = useNotificationStore();
+    const [workdays, setWorkdays] = useState({});
+    const [scheduleLoaded, setScheduleLoaded] = useState(false);
+    const [dateErrors, setDateErrors] = useState({
+        startDate: "",
+        endDate: "",
+    });
 
     useEffect(() => {
         const tomorrow = new Date();
@@ -32,7 +38,20 @@ const LeaveRequestForm = ({ onClose, isOpen }) => {
             startDate: tomorrow.toISOString().split("T")[0],
             endDate: tomorrow.toISOString().split("T")[0],
         }));
-    }, []);
+
+        // Fetch staff schedule when form is opened
+        const fetchSchedule = async () => {
+            if (auth?._id && token) {
+                const scheduleData = await getStaffSchedule(auth._id, token);
+                if (scheduleData?.workdays) {
+                    setWorkdays(scheduleData.workdays);
+                }
+                setScheduleLoaded(true);
+            }
+        };
+
+        fetchSchedule();
+    }, [auth, token, getStaffSchedule]);
 
     useEffect(() => {
         if (isSuccess && message) {
@@ -78,10 +97,107 @@ const LeaveRequestForm = ({ onClose, isOpen }) => {
             ...prev,
             [name]: value,
         }));
+
+        // Validate date when it changes
+        if (name === 'startDate' || name === 'endDate') {
+            validateDate(name, value);
+        }
+    };
+
+    const validateDate = (fieldName, dateValue) => {
+        if (!dateValue) return;
+
+        const date = new Date(dateValue);
+        const dayOfWeek = date.getDay(); // 0 = Sunday, 1 = Monday, etc.
+        const dayNames = [
+            "sunday",
+            "monday", 
+            "tuesday", 
+            "wednesday", 
+            "thursday", 
+            "friday", 
+            "saturday"
+        ];
+        const dayName = dayNames[dayOfWeek];
+        
+        if (workdays && !workdays[dayName]) {
+            setDateErrors(prev => ({
+                ...prev,
+                [fieldName]: `You don't have work scheduled on ${dayName.charAt(0).toUpperCase() + dayName.slice(1)}. No leave required.`
+            }));
+            return false;
+        } else {
+            setDateErrors(prev => ({
+                ...prev,
+                [fieldName]: ""
+            }));
+            return true;
+        }
+    };
+
+    const isDateDisabled = (dateString) => {
+        if (!scheduleLoaded || !workdays) return false;
+        
+        const date = new Date(dateString);
+        const dayOfWeek = date.getDay();
+        const dayNames = [
+            "sunday",
+            "monday", 
+            "tuesday", 
+            "wednesday", 
+            "thursday", 
+            "friday", 
+            "saturday"
+        ];
+        const dayName = dayNames[dayOfWeek];
+        
+        return !workdays[dayName];
+    };
+
+    const validateDateRange = () => {
+        if (!leaveData.startDate || !leaveData.endDate) return false;
+        
+        const start = new Date(leaveData.startDate);
+        const end = new Date(leaveData.endDate);
+        const dateArray = [];
+        
+        // Generate all dates between start and end date
+        let currentDate = new Date(start);
+        while (currentDate <= end) {
+            dateArray.push(new Date(currentDate));
+            currentDate.setDate(currentDate.getDate() + 1);
+        }
+        
+        // Check if any selected date is not a workday
+        for (const date of dateArray) {
+            const dayOfWeek = date.getDay();
+            const dayNames = [
+                "sunday", "monday", "tuesday", "wednesday", 
+                "thursday", "friday", "saturday"
+            ];
+            const dayName = dayNames[dayOfWeek];
+            
+            if (!workdays[dayName]) {
+                const formattedDate = date.toLocaleDateString();
+                Swal.fire({
+                    icon: "warning",
+                    title: "Non-workday Selected",
+                    text: `${formattedDate} (${dayName.charAt(0).toUpperCase() + dayName.slice(1)}) is not a scheduled workday. Please select only workdays.`,
+                });
+                return false;
+            }
+        }
+        
+        return true;
     };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+
+        // Validate dates against schedule
+        if (!validateDateRange()) {
+            return;
+        }
 
         const start = new Date(leaveData.startDate);
         const end = new Date(leaveData.endDate);
@@ -148,7 +264,7 @@ const LeaveRequestForm = ({ onClose, isOpen }) => {
                                         Request Leave
                                     </DialogTitle>
 
-                                    <div className="bg-white rounded-lg shadow-md p-6">
+                                    <div className="bg-white rounded-lg">
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                                             <div>
                                                 <label className="required block text-sm font-medium text-gray-700 mb-1">
@@ -159,10 +275,13 @@ const LeaveRequestForm = ({ onClose, isOpen }) => {
                                                     name="startDate"
                                                     value={leaveData.startDate}
                                                     onChange={handleChange}
-                                                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-black input bg-white"
+                                                    className={`w-full border ${dateErrors.startDate ? 'border-red-500' : 'border-gray-300'} rounded-md px-3 py-2 text-black input bg-white`}
                                                     required
                                                     min={new Date().toISOString().split('T')[0]}
                                                 />
+                                                {dateErrors.startDate && (
+                                                    <p className="text-red-500 text-xs mt-1">{dateErrors.startDate}</p>
+                                                )}
                                             </div>
 
                                             <div>
@@ -174,12 +293,37 @@ const LeaveRequestForm = ({ onClose, isOpen }) => {
                                                     name="endDate"
                                                     value={leaveData.endDate}
                                                     onChange={handleChange}
-                                                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-black input bg-white"
+                                                    className={`w-full border ${dateErrors.endDate ? 'border-red-500' : 'border-gray-300'} rounded-md px-3 py-2 text-black input bg-white`}
                                                     required
                                                     min={leaveData.startDate}
                                                 />
+                                                {dateErrors.endDate && (
+                                                    <p className="text-red-500 text-xs mt-1">{dateErrors.endDate}</p>
+                                                )}
                                             </div>
                                         </div>
+
+                                        {scheduleLoaded && (
+                                            <div className="mb-4 bg-blue-50 p-3 rounded-md text-sm">
+                                                <p className="font-medium text-blue-800">Your Schedule:</p>
+                                                <div className="flex flex-wrap gap-2 mt-2">
+                                                    {Object.entries(workdays).map(([day, isWorkday]) => (
+                                                        <span 
+                                                            key={day}
+                                                            className={`px-2 py-1 rounded-full text-xs font-medium
+                                                            ${isWorkday 
+                                                                ? 'bg-green-100 text-green-800' 
+                                                                : 'bg-gray-100 text-gray-500 line-through'}`}
+                                                        >
+                                                            {day.charAt(0).toUpperCase() + day.slice(1)}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                                <p className="mt-2 text-xs text-blue-700">
+                                                    Note: You can only request leave for your scheduled workdays.
+                                                </p>
+                                            </div>
+                                        )}
 
                                         <div className="mb-4">
                                             <label className="required block text-sm font-medium text-gray-700 mb-1">
@@ -227,9 +371,9 @@ const LeaveRequestForm = ({ onClose, isOpen }) => {
                                             )}
 
                                             <button
-                                                disabled={isLoading}
+                                                disabled={isLoading || dateErrors.startDate || dateErrors.endDate}
                                                 onClick={handleSubmit}
-                                                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center space-x-2"
+                                                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center space-x-2 disabled:bg-blue-300 disabled:cursor-not-allowed"
                                             >
                                                 {isLoading ? (
                                                     <>

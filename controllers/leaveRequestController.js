@@ -236,6 +236,50 @@ exports.updateLeaveRequestStatus = async (req, res) => {
         } else {
             leaveRequest.approvedBy = req.user._id;
             leaveRequest.approvedAt = new Date();
+            
+            const startDate = new Date(leaveRequest.startDate);
+            const endDate = new Date(leaveRequest.endDate);
+            const dateArray = [];
+            
+            let currentDate = new Date(startDate);
+            while (currentDate <= endDate) {
+                dateArray.push(new Date(currentDate));
+                currentDate.setDate(currentDate.getDate() + 1);
+            }
+            
+            for (const date of dateArray) {
+                const dayStart = new Date(date);
+                dayStart.setHours(0, 0, 0, 0);
+                
+                const dayEnd = new Date(date);
+                dayEnd.setHours(23, 59, 59, 999);
+                
+                const existingRecord = await Attendance.findOne({
+                    staffId: leaveRequest.staffId,
+                    date: { $gte: dayStart, $lte: dayEnd }
+                });
+                
+                if (existingRecord) {
+                    existingRecord.status = "on-leave";
+                    existingRecord.leaveType = leaveRequest.leaveType;
+                    existingRecord.reason = leaveRequest.reason;
+                    existingRecord.reasonVerified = true;
+                    existingRecord.verifiedBy = req.user._id;
+                    existingRecord.notes = `Updated to on-leave from leave request ${leaveRequest._id}`;
+                    await existingRecord.save();
+                } else {
+                    await Attendance.create({
+                        staffId: leaveRequest.staffId,
+                        date: dayStart,
+                        status: "on-leave",
+                        leaveType: leaveRequest.leaveType,
+                        reason: leaveRequest.reason,
+                        reasonVerified: true,
+                        verifiedBy: req.user._id,
+                        notes: `Auto-created from approved leave request ${leaveRequest._id}`
+                    });
+                }
+            }
         }
 
         await leaveRequest.save();
@@ -245,8 +289,7 @@ exports.updateLeaveRequestStatus = async (req, res) => {
             await Notification.create({
                 userId: staff._id,
                 type: "leave_status",
-                title: `Leave Request ${status === "approved" ? "Approved" : "Rejected"
-                    }`,
+                title: `Leave Request ${status === "approved" ? "Approved" : "Rejected"}`,
                 message:
                     status === "approved"
                         ? `Your leave request from ${new Date(
@@ -266,8 +309,6 @@ exports.updateLeaveRequestStatus = async (req, res) => {
                 },
                 read: false,
             });
-
-            await Attendance.create()
         }
 
         res.status(200).json({
@@ -518,6 +559,71 @@ exports.getLeaveStatistics = async (req, res) => {
         res.status(500).json({
             success: false,
             message: "Error retrieving leave statistics",
+            error: err.message,
+        });
+    }
+};
+
+exports.getStaffSchedule = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        if (!mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid staff ID",
+            });
+        }
+
+        const staff = await Users.findById(id).populate('assignedShift');
+        
+        if (!staff) {
+            return res.status(404).json({
+                success: false,
+                message: "Staff not found",
+            });
+        }
+
+        const workdays = {
+            monday: false,
+            tuesday: false,
+            wednesday: false,
+            thursday: false,
+            friday: false,
+            saturday: false,
+            sunday: false
+        };
+
+        if (staff.assignedShift) {
+            const shift = staff.assignedShift;
+            Object.keys(workdays).forEach(day => {
+                workdays[day] = shift[day]?.enabled || false;
+            });
+        } 
+        else if (staff.customSchedule) {
+            Object.keys(workdays).forEach(day => {
+                workdays[day] = staff.customSchedule[day]?.isWorkday || false;
+            });
+        } 
+        else {
+            workdays.monday = true;
+            workdays.tuesday = true;
+            workdays.wednesday = true;
+            workdays.thursday = true;
+            workdays.friday = true;
+        }
+
+        res.status(200).json({
+            success: true,
+            data: {
+                workdays
+            }
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({
+            success: false,
+            message: "Error retrieving staff schedule",
             error: err.message,
         });
     }

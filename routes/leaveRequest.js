@@ -8,12 +8,15 @@ const {
   updateLeaveRequestStatus,
   getUnhandledAbsences,
   getLeaveStatistics,
+  getStaffSchedule,
 } = require("../controllers/leaveRequestController");
 
 router.get("/user-leave-requests/user/:id", protect, getUserLeaveRequests);
 router.get("/get-leave-requests", protect, getAllLeaveRequests);
 router.get("/attendance/unhandled-absences/:id", protect, getUnhandledAbsences);
 router.get("/statistics", protect, getLeaveStatistics); 
+router.get("/staff-schedule/:id", protect, getStaffSchedule);
+
 router.post("/leave-requests", protect, createLeaveRequest);
 
 router.put(
