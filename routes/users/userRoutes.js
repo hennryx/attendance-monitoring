@@ -7,7 +7,6 @@ const {
   deleteUser,
   enrollUSer,
   matchFingerprint,
-  verifyFingerprint,
   getDepartments,
   updateProfile,
   updatePassword,
@@ -22,7 +21,6 @@ router.get("/getAll", protect, authorize("ADMIN"), getAllUsers);
 router.delete("/delete", protect, deleteUser);
 router.put("/update", protect, updateUser);
 router.post("/match", matchFingerprint);
-router.post("/verify", verifyFingerprint);
 router.get("/departments", protect, getDepartments);
 
 router.put("/update-profile", protect, uploadProfileImage, updateProfile);
