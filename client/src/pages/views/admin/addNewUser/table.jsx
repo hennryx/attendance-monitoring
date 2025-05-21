@@ -219,9 +219,9 @@ const Table = ({ data, toggleAdd, handleUpdate }) => {
                 </svg>
                 <input
                   type="search"
+                  placeholder="Search"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="Search"
                 />
               </label>
               <button
@@ -240,7 +240,7 @@ const Table = ({ data, toggleAdd, handleUpdate }) => {
             <th>Name</th>
             <th>Mail</th>
             <th>Role</th>
-            <th>Action</th>
+            <th className="text-center">Action</th>
           </tr>
         </thead>
         <tbody className="text-gray-500">

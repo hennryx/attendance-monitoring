@@ -14,7 +14,13 @@ const Pagination = ({ allData, getCurrentItems, getIndexOfFirstItem }) => {
       getCurrentItems(currentItems);
       getIndexOfFirstItem(indexOfFirstItem);
     }
-  }, [allData]);
+  }, [
+    allData,
+    getCurrentItems,
+    getIndexOfFirstItem,
+    indexOfFirstItem,
+    indexOfLastItem,
+  ]);
 
   const handlePageChange = (pageNumber) => {
     setCurrentPage(pageNumber);
