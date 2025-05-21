@@ -7,7 +7,6 @@ import useLeaveRequestStore from '../../../../services/stores/attendance/leaveRe
 import { generatePDFReport, exportToCSV } from '../../../../services/utilities/pdfUtils';
 import Swal from 'sweetalert2';
 
-// Helper function to safely format dates
 const safeFormatDate = (dateValue, formatString, fallback = 'N/A') => {
     if (!dateValue) return fallback;
     

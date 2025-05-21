@@ -67,7 +67,6 @@ const LeaveRequestSchema = new mongoose.Schema({
   },
 });
 
-// Pre-save hook to update the updatedAt field
 LeaveRequestSchema.pre("save", function (next) {
   this.updatedAt = new Date();
   next();

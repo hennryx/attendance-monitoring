@@ -38,7 +38,6 @@ const LeaveHistoryPage = () => {
         const start = new Date(startDate);
         const end = new Date(endDate);
 
-        // Calculate the difference in days
         const diffTime = Math.abs(end - start);
         const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
@@ -46,11 +45,9 @@ const LeaveHistoryPage = () => {
     };
 
     const sortedLeaveRequests = [...userLeaveRequests].sort((a, b) => {
-        // First, sort by status (pending first)
         if (a.status === "pending" && b.status !== "pending") return -1;
         if (a.status !== "pending" && b.status === "pending") return 1;
 
-        // Then by date (newest first)
         return new Date(b.createdAt) - new Date(a.createdAt);
     });
 
@@ -110,7 +107,7 @@ const LeaveHistoryPage = () => {
                             </div>
                         </div>
                     ) : (
-                        <div className="overflow-x-auto">
+                        <div className="overflow-x-auto min-h-[80vh] shadow-2xl">
                             <table className="min-w-full divide-y divide-gray-200">
                                 <thead className="bg-gray-50">
                                     <tr>
